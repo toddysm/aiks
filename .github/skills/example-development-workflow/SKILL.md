@@ -84,7 +84,7 @@ Use a stable lowercase hyphenated slug. Split a design into additional area docu
 5. Commit with the configured identity and signing policy, push the branch, and create a design PR.
 6. Link the design file and feature issue in the PR body and add `Closes #<feature-issue>`.
 7. Ask the user to review the design PR. Address requested changes on the same branch.
-8. Merge the design PR only after the user explicitly approves it and all PR checks pass. Delete its branch using the branch-cleanup safeguards and sync the default branch.
+8. Merge the design PR only after the user explicitly approves it and all PR checks pass. Record the design branch name for final cleanup, retain the branch locally and remotely, and sync the default branch.
 
 The accepted design in the default branch is the implementation source of truth. Do not begin breakdown or implementation from an unmerged design.
 
@@ -169,6 +169,12 @@ Merge only when all of these statements are true:
 - All PR CI checks are green.
 - The implementation still conforms to the accepted design.
 
-Use the repository's configured merge strategy. After merge, follow the branch-cleanup safeguards to delete the remote feature branch, switch to the default branch, fast-forward from the remote, delete the local feature branch, and verify a clean synchronized worktree.
+Use the repository's configured merge strategy. After the implementation PR merges:
+
+1. Switch to `main` and fast-forward it from `origin/main`.
+2. Verify the merged design and implementation commits are reachable from `origin/main` and apply the branch-cleanup safeguards.
+3. Delete the recorded `design/<feature-issue>-<slug>` branch locally and remotely.
+4. Delete the `feature/<tracking-issue>-<slug>` branch locally and remotely.
+5. Prune stale remote-tracking references and verify that local `main` matches `origin/main` with a clean worktree.
 
 Report the merged PR, tracking issue, completed work items, tests, CI status, and resulting default-branch commit. Then stop and wait for the user.
