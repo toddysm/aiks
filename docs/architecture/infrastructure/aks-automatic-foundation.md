@@ -1,6 +1,6 @@
 # AKS Automatic Infrastructure Foundation Design
 
-- Status: Proposed
+- Status: Accepted
 - Feature issue: [#3](https://github.com/toddysm/aiks/issues/3)
 - Design branch: `design/3-aks-automatic-foundation`
 - Design PR: [#4](https://github.com/toddysm/aiks/pull/4)
