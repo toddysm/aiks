@@ -26,7 +26,7 @@ AKS Automatic supplies the required Kubernetes network data plane through Azure 
 - Provide a Click-based Python CLI for preflight, validation, preview, deployment, verification, and protected destruction.
 - Create the Azure platform services needed by later inference and agent examples: networking, ACR, Key Vault, monitoring, identity, and RBAC.
 - Verify the foundation with one Python readiness application and Helm chart on kind and AKS.
-- Establish static CI, documentation, cost guidance, platform observability, and local operation reporting without product usage telemetry.
+- Establish static CI, documentation, cost guidance, operational observability, and local operation reporting without product usage telemetry.
 
 ### Non-goals
 
@@ -37,7 +37,7 @@ AKS Automatic supplies the required Kubernetes network data plane through Azure 
 - Implement multi-region disaster recovery.
 - Provide production DNS names, certificates, or a general application ingress platform beyond readiness validation.
 - Support Windows nodes, AKS Standard, or non-Azure cloud infrastructure.
-- Enable Istio in the initial foundation.
+- Enable the Istio service-mesh profile, sidecar injection, or Istio workload CRDs. The sidecarless `approuting-istio` Gateway API ingress implementation remains in scope.
 
 ## Requirements and scenarios
 
@@ -217,7 +217,7 @@ The backend is Terraform-specific operational support and is intentionally exclu
 
 Authentication uses the Azure CLI with `use_cli=true` and `use_azuread_auth=true`; account keys, SAS tokens, and storage connection strings are prohibited. The operator receives Storage Blob Data Contributor scoped to the state container. The storage account enforces TLS 1.2+, disables public blob access and shared-key authorization, enables blob versioning and soft delete, and uses configured operator IP/VNet rules or a pre-existing private access path. Bootstrap retries only known RBAC propagation failures.
 
-State cleanup is a separate `aiks state destroy` operation. It refuses to run while any non-bootstrap state key, active lease, or deployed environment exists. The CLI pulls a mode-`0600`, ignored local recovery copy of bootstrap state, confirms the remote state is unlocked, deletes the state resource group out of band through Azure Resource Manager, verifies deletion, and writes a nonsecret cleanup receipt. It cannot use Terraform to destroy the storage account that contains its own active state. The operator chooses whether to retain the local recovery copy temporarily or securely delete it after verification.
+State cleanup is a separate `aiks state destroy` operation. It refuses to run while any non-bootstrap state key, active lease, or deployed environment exists. The CLI pulls an ignored local recovery copy of bootstrap state with file mode `0600`, confirms the remote state is unlocked, deletes the state resource group out of band through Azure Resource Manager, verifies deletion, and writes a nonsecret cleanup receipt. It cannot use Terraform to destroy the storage account that contains its own active state. The operator chooses whether to retain the local recovery copy temporarily or securely delete it after verification.
 
 ### Workload Identity verification
 
