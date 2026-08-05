@@ -104,7 +104,7 @@ Use a stable lowercase hyphenated slug. Split a design into additional area docu
 5. Commit with the configured identity and signing policy, push the branch, and create a design PR.
 6. Link the design file and feature issue in the PR body and add `Closes #<feature-issue>`.
 7. Ask the user to review the design PR. Address requested changes on the same branch.
-8. Merge the design PR only after the user explicitly approves it and all PR checks pass. Record the design branch name for final cleanup, retain the branch locally and remotely, and sync the default branch.
+8. Merge the design PR only after the user explicitly approves it and all PR checks pass. Record the design branch name, retain it locally and remotely only until the Phase 8 cleanup, and sync the default branch.
 
 The accepted design in the default branch is the implementation source of truth. Do not begin breakdown or implementation from an unmerged design.
 

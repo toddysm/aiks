@@ -81,6 +81,7 @@ jobs:
           require "psych"
 
           failures = []
+          validated = 0
 
           Dir.glob("**/*", File::FNM_DOTMATCH).sort.each do |path|
             next unless File.file?(path)
@@ -92,10 +93,11 @@ jobs:
             begin
               content = File.read(path)
               extension == ".json" ? JSON.parse(content) : Psych.parse_stream(content, filename: path)
-              puts "Validated #{path}"
+              validated += 1
             rescue JSON::ParserError, Psych::SyntaxError => error
               failures << "#{path}: #{error.message}"
             end
           end
 
           abort failures.join("\n") unless failures.empty?
+          puts "Validated #{validated} JSON/YAML files"

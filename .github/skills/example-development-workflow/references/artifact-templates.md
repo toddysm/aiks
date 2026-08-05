@@ -250,7 +250,7 @@ After design approval, change `Status: Proposed` to `Status: Accepted` before me
 - [Markdown, link, diagram, or documentation checks performed]
 - [Evidence that each implementation-standard category is designed in full or explicitly absent]
 
-Closes #[feature-issue]
+Closes #<feature-issue>
 ```
 
 ## Implementation PR
@@ -290,5 +290,5 @@ Closes #[feature-issue]
 - [ ] All current PR CI checks are green
 - [ ] Documentation is updated
 
-Closes #[tracking-issue]
+Closes #<tracking-issue>
 ```
