@@ -379,7 +379,7 @@ Kubeconfig, tokens, certificates, storage keys, and Key Vault values are never d
 | Policy safeguards | Automatic service profile | Automatic service profile | Azure Policy and deployment safeguards are enforced |
 | Stable upgrades and node image updates | Automatic service profile | Automatic service profile | expected upgrade profiles remain enabled |
 | Managed Gateway API CRDs | managed Gateway API installation profile | narrow AzAPI update if AzureRM lacks the profile | Gateway API CRDs are managed and established |
-| Application-routing Gateway API | application-routing Istio profile | `web_app_routing_ingress.istio_enabled` | `approuting-istio` exists; service-mesh profile is absent |
+| Application-routing Gateway API | application-routing Istio profile | `web_app_routing_ingress.istio_enabled` when exposed by the pinned AzureRM schema; otherwise the narrow AzAPI profile update | `approuting-istio` exists; service-mesh profile is absent |
 | Container Insights | `addonProfiles.omsagent` plus DCR/DCRA | narrow AzAPI update plus DCR/DCRA | custom LAW association is active; no unexpected default LAW |
 | Managed Prometheus | `azureMonitorProfile.metrics` plus DCR/DCRA | narrow AzAPI update plus DCR/DCRA | custom AMW association and scrape target are active |
 
