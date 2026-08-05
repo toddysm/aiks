@@ -54,7 +54,7 @@ Summarize the agreed problem, scope, scenarios, acceptance criteria, metrics, te
 
 ## Phase 2: File the Feature Issue
 
-Verify the GitHub repository, default branch, authentication, and issue permissions. Create one feature issue using the feature issue template. Include the complete approved scope rather than referring only to chat history.
+Verify and record the GitHub repository, primary remote, default branch, authentication, and issue permissions. Create one feature issue using the feature issue template. Include the complete approved scope rather than referring only to chat history.
 
 Record the issue number and URL. Use this feature issue as the design's source requirement. Do not close it manually; the design PR must contain `Closes #<feature-issue>` so merging that PR closes it.
 
@@ -171,10 +171,10 @@ Merge only when all of these statements are true:
 
 Use the repository's configured merge strategy. After the implementation PR merges:
 
-1. Switch to `main` and fast-forward it from `origin/main`.
-2. Verify the merged design and implementation commits are reachable from `origin/main` and apply the branch-cleanup safeguards.
+1. Switch to the verified default branch and fast-forward it from the verified primary remote.
+2. Verify the merged design and implementation commits are reachable from the remote-tracking default branch and apply the branch-cleanup safeguards.
 3. Delete the recorded `design/<feature-issue>-<slug>` branch locally and remotely.
 4. Delete the `feature/<tracking-issue>-<slug>` branch locally and remotely.
-5. Prune stale remote-tracking references and verify that local `main` matches `origin/main` with a clean worktree.
+5. Prune stale remote-tracking references and verify that the local default branch matches its remote-tracking branch with a clean worktree.
 
 Report the merged PR, tracking issue, completed work items, tests, CI status, and resulting default-branch commit. Then stop and wait for the user.
