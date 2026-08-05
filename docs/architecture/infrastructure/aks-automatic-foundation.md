@@ -26,7 +26,7 @@ AKS Automatic supplies the required Kubernetes network data plane through Azure 
 - Provide a Click-based Python CLI for preflight, validation, preview, deployment, verification, and protected destruction.
 - Create the Azure platform services needed by later inference and agent examples: networking, ACR, Key Vault, monitoring, identity, and RBAC.
 - Verify the foundation with one Python readiness application and Helm chart on kind and AKS.
-- Establish static CI, documentation, cost guidance, and operational telemetry.
+- Establish static CI, documentation, cost guidance, platform observability, and local operation reporting without product usage telemetry.
 
 ### Non-goals
 
@@ -395,7 +395,7 @@ Modules separate naming, network, identity/RBAC, AKS, registry, vault/private en
 
 ### Terraform
 
-Terraform pins AzureRM `~> 5.0` with a minimum of `5.0.1` and uses `azurerm_kubernetes_automatic_cluster` for the cluster. AzureRM resources manage the resource group, network, identities, RBAC, ACR, Key Vault, private endpoints/DNS, monitoring, alerts, and Grafana.
+Terraform constrains AzureRM to `>= 5.0.1, < 6.0.0` and uses `azurerm_kubernetes_automatic_cluster` for the cluster. AzureRM resources manage the resource group, network, identities, RBAC, ACR, Key Vault, private endpoints/DNS, monitoring, alerts, and Grafana.
 
 One narrowly scoped `azapi_update_resource` owns only Automatic properties not exposed by AzureRM: managed Gateway API installation and the Container Insights/managed Prometheus cluster profiles. It targets stable API `2026-04-01`, runs after custom monitoring destinations exist, and is covered by repeated-plan assertions. AzAPI is not used for resources supported by AzureRM, except the server-generated marker-key ARM child noted above. Parity tests inspect resulting ARM properties rather than provider implementation details.
 
