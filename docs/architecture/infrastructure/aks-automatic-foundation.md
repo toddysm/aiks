@@ -3,7 +3,7 @@
 - Status: Proposed
 - Feature issue: [#3](https://github.com/toddysm/aiks/issues/3)
 - Design branch: `design/3-aks-automatic-foundation`
-- Design PR: Pending publication
+- Design PR: [#4](https://github.com/toddysm/aiks/pull/4)
 - Area: infrastructure
 - Last updated: 2026-08-05
 
