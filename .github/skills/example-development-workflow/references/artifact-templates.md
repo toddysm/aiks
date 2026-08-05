@@ -41,6 +41,14 @@ Adapt these templates to the repository and omit a section only when it is expli
 
 - [Business, adoption, performance, reliability, or cost metric and target]
 
+## Implementation standards
+
+- Infrastructure: [Both Bicep and Terraform, matching inputs/outputs, and CI validation; or `Not applicable: no infrastructure deliverable`.]
+- Kubernetes: [One Helm chart with local Kubernetes and AKS values plus deployment, validation, upgrade, rollback, and cleanup acceptance criteria; or `Not applicable: no Kubernetes deliverable`.]
+- Languages: [Python for supporting code; Bash/zsh with an explicit shell declaration for shell scripts; Python or JavaScript for deployed example applications.]
+- Configuration: [Externalized YAML/JSON for all application, deployment, environment-specific, and runtime configuration.]
+- Identity and secrets: [Selected mechanism and rank. Explain why every higher-ranked option is not viable. Confirm no secrets enter source-controlled configuration.]
+
 ## Telemetry
 
 - Logs: [events and fields]
@@ -50,7 +58,7 @@ Adapt these templates to the repository and omit a section only when it is expli
 
 ## Constraints and dependencies
 
-[Security, identity, privacy, networking, compatibility, prerequisites, and dependencies.]
+[Security, identity, privacy, networking, compatibility, prerequisites, and dependencies. Identify any implementation-standard category with no corresponding deliverable. Treat any other deviation as an exception requiring documented impact, mitigation, and explicit approval.]
 
 ## Testing and delivery
 
@@ -93,15 +101,19 @@ Adapt these templates to the repository and omit a section only when it is expli
 
 ## Interfaces and configuration
 
-[APIs, manifests, schemas, configuration, versioning, and compatibility.]
+[APIs, schemas, versioning, compatibility, and configuration ownership. Externalize all application, deployment, environment-specific, and runtime configuration as YAML or JSON.]
 
 ## Infrastructure and deployment
 
-[Azure/AKS resources, Kubernetes objects, dependencies, rollout, rollback, and cleanup.]
+[For every infrastructure deliverable, define equivalent Bicep and Terraform implementations with matching inputs/outputs and GitHub Actions validation. For every Kubernetes deliverable, define one Helm chart and environment-specific values for both local Kubernetes and AKS, including deployment, validation, upgrade, rollback, and cleanup. State explicitly when either deliverable category is absent.]
+
+## Application and automation languages
+
+[Choose Python or JavaScript for deployed example applications. Use Python for supporting code and Bash/zsh only when shell is the appropriate interface. Record choices and rationale, and declare every shell script's required shell explicitly.]
 
 ## Security and identity
 
-[Trust boundaries, workload identity, RBAC, secrets, network controls, and data handling.]
+[Trust boundaries, RBAC, network controls, and data handling. For each workload, name the selected mechanism and rank: managed identity/Workload ID; Kubernetes Secrets sourced from Azure Key Vault through Secrets Store CSI Driver; runtime retrieval from Azure Key Vault; environment variables for local testing only. Explain why every higher-ranked option is not viable and confirm that no secret values enter source-controlled configuration.]
 
 ## Observability
 
@@ -162,6 +174,10 @@ After design approval, change `Status: Proposed` to `Status: Accepted` before me
 
 - [ ] All work-item acceptance criteria pass
 - [ ] Applicable tests run locally and in GitHub Actions
+- [ ] Every infrastructure deliverable has equivalent Bicep and Terraform implementations with matching inputs/outputs and passing CI, or the tracker records that no infrastructure deliverable exists
+- [ ] Every Kubernetes deliverable uses one Helm chart and passes local Kubernetes and AKS lifecycle validation, or the tracker records that no Kubernetes deliverable exists
+- [ ] Supporting code, shell scripts, and deployed applications use the required languages
+- [ ] All configuration is externalized as YAML/JSON and each workload records its identity or secret mechanism, rank, and higher-ranked exclusions
 - [ ] Required telemetry and documentation are delivered
 - [ ] Copilot review is complete and every thread is resolved
 - [ ] All PR CI checks are green
@@ -194,11 +210,15 @@ After design approval, change `Status: Proposed` to `Status: Accepted` before me
 
 ## Implementation notes
 
-[Constraints, expected surfaces, interfaces, and dependencies without over-prescribing code.]
+[Constraints, expected surfaces, interfaces, dependencies, and applicable implementation standards without over-prescribing code.]
 
 ## Acceptance criteria
 
 - [ ] [Observable criterion]
+- [ ] If this item delivers infrastructure: equivalent Bicep and Terraform inputs/outputs plus passing CI validation
+- [ ] If this item delivers Kubernetes resources: the same Helm chart passes deployment, validation, upgrade, rollback, and cleanup on local Kubernetes and AKS
+- [ ] Supporting code, shell scripts, and deployed applications use the required languages, with Bash/zsh declared explicitly for scripts
+- [ ] All configuration is externalized as YAML/JSON; the selected identity or secret rank and every higher-ranked exclusion are recorded
 
 ## Tests and CI
 
@@ -228,6 +248,7 @@ After design approval, change `Status: Proposed` to `Status: Accepted` before me
 ## Validation
 
 - [Markdown, link, diagram, or documentation checks performed]
+- [Evidence that each implementation-standard category is designed in full or explicitly absent]
 
 Closes #[feature-issue]
 ```
@@ -260,6 +281,10 @@ Closes #[feature-issue]
 ## Review readiness
 
 - [ ] Implementation matches the accepted design
+- [ ] Every infrastructure deliverable has equivalent Bicep and Terraform inputs/outputs and passing GitHub Actions validation, or the PR identifies that no infrastructure deliverable exists
+- [ ] Every Kubernetes deliverable uses one Helm chart and passes deployment, validation, upgrade, rollback, and cleanup on local Kubernetes and AKS, or the PR identifies that no Kubernetes deliverable exists
+- [ ] Supporting code is Python; shell scripts declare Bash/zsh; deployed applications are Python or JavaScript
+- [ ] All configuration is externalized as YAML/JSON; each workload records its identity or secret mechanism, rank, and higher-ranked exclusions
 - [ ] Applicable tests are included
 - [ ] Required CI is configured
 - [ ] All current PR CI checks are green

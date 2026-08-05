@@ -30,6 +30,25 @@ Read [artifact templates](./references/artifact-templates.md) before creating is
 - Before deleting a branch, verify its PR is merged, its commits are reachable from the remote default branch, it has no local-only commits, no worktree uses it, and the current worktree is clean. Use non-force deletion and pause if any check fails.
 - Pause and explain a blocker when authentication, permissions, required infrastructure, or an external service prevents safe progress.
 
+## Implementation Standards
+
+Apply these standards to every design and implementation. A category is not applicable only when the feature has no corresponding deliverable; record that fact explicitly. If a corresponding deliverable exists, do not silently omit a standard or substitute another technology. Document the reason, security and portability impact, mitigation, and proposed exception, then obtain explicit user approval before proceeding.
+
+- Define Azure infrastructure in both Bicep and Terraform. Keep both implementations functionally equivalent, expose matching inputs and outputs, and validate both in CI.
+- Package every Kubernetes deployment as a Helm chart. Do not use standalone Kubernetes manifests as the primary deployment mechanism.
+- Make every Kubernetes workload deployable to both a supported local Kubernetes cluster and AKS from the same Helm chart. Use separate values files or overlays only for environment-specific settings, and document deployment, validation, upgrade, rollback, and cleanup for both targets.
+- Write automation and supporting code in Python. When a shell script is the appropriate interface, use Bash or zsh and declare the required shell explicitly.
+- Write example applications deployed to Kubernetes in Python or JavaScript. Choose the language from the example's requirements and existing repository patterns; record the choice in the design.
+- Store configuration as YAML or JSON according to the conventions of the feature, tool, and implementation language.
+- Externalize all application, deployment, environment-specific, and runtime configuration. Do not bake configuration into application code, container images, Helm templates, Bicep modules, or Terraform modules.
+- Never store secret values in source-controlled configuration, Helm values, IaC parameter files, application code, container images, logs, or test fixtures.
+- Use identities and secrets in this order of preference:
+  1. Managed identities, including Microsoft Entra Workload ID for AKS workloads.
+  2. Kubernetes Secrets sourced from Azure Key Vault through the Secrets Store CSI Driver when a Kubernetes Secret is required.
+  3. Secrets stored in Azure Key Vault and retrieved at runtime without persisting them in repository configuration.
+  4. Environment variables only for local testing, sourced from ignored local files or the developer's environment and never committed.
+- Use the highest-ranked viable identity or secret option. Record why each higher-ranked option is not viable before choosing a lower-ranked option.
+
 ## Phase 1: Discover and Agree
 
 Inspect only enough existing documentation and nearby examples to make the interview repository-aware. Then interview the user until all applicable areas below are resolved:
@@ -41,6 +60,7 @@ Inspect only enough existing documentation and nearby examples to make the inter
 - repository area: `infrastructure`, `platform`, `inference`, `agents`, `samples`, or cross-cutting
 - dependencies, prerequisites, interfaces, and compatibility constraints
 - identity, security, privacy, networking, and data-handling requirements
+- Bicep and Terraform parity, Helm packaging, local Kubernetes and AKS targets, implementation language, externalized configuration, and identity or secret strategy
 - scale, performance, reliability, cost, and operational expectations
 - business or adoption metrics that define success
 - logs, metrics, traces, dashboards, and alerts needed to observe success and failures
@@ -78,7 +98,7 @@ Use a stable lowercase hyphenated slug. Split a design into additional area docu
 ### Write and publish the design
 
 1. Sync the default branch and create `design/<feature-issue>-<slug>` from it.
-2. Write the design using the design template. Trace requirements and acceptance criteria back to the feature issue.
+2. Write the design using the design template. Trace requirements and acceptance criteria back to the feature issue and show how every applicable implementation standard will be satisfied.
 3. Include diagrams when they clarify components or flows, using Mermaid in Markdown.
 4. Validate Markdown, links, diagrams, and any repository documentation checks.
 5. Commit with the configured identity and signing policy, push the branch, and create a design PR.
@@ -98,6 +118,7 @@ Each work item must:
 - link to the tracking issue and accepted design
 - define in-scope and out-of-scope behavior
 - include acceptance criteria, applicable tests, dependencies, and telemetry work
+- include the applicable implementation standards and validation for Bicep, Terraform, Helm, local Kubernetes, AKS, languages, configuration, identities, and secrets
 - be small enough to implement and validate before moving to the next item
 
 Link work items as native GitHub sub-issues when supported. Otherwise, add a Markdown task list such as `- [ ] #123` to the tracking issue. Also add `Tracked by #<tracking-issue>` to every work item so linkage is bidirectional. Order the tracker by dependency and include CI setup or extension as a work item when the repository cannot yet test the functionality automatically.
@@ -113,7 +134,7 @@ After breakdown approval, sync the default branch and create one branch named `f
 For each work item:
 
 1. Restate its acceptance criteria and inspect the owning implementation and test surfaces.
-2. Implement the smallest complete change that satisfies the item and accepted design.
+2. Implement the smallest complete change that satisfies the item, accepted design, and applicable implementation standards.
 3. Add or update unit, integration, deployment, or end-to-end tests as applicable. If no automated test is applicable, document the reason and a reproducible manual validation in the issue.
 4. Add or update GitHub Actions under `.github/workflows/` so applicable tests run automatically for pull requests. Reuse existing workflows and repository commands before introducing new tooling.
 5. Run the narrowest behavior check after the first edit, repair locally, then run the broader applicable test and lint suite.
