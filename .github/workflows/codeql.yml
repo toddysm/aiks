@@ -91,7 +91,7 @@ jobs:
 
             begin
               content = File.read(path)
-              extension == ".json" ? JSON.parse(content) : Psych.parse_stream(content, path)
+              extension == ".json" ? JSON.parse(content) : Psych.parse_stream(content, filename: path)
               puts "Validated #{path}"
             rescue JSON::ParserError, Psych::SyntaxError => error
               failures << "#{path}: #{error.message}"
