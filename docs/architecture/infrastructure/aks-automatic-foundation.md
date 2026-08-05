@@ -424,7 +424,7 @@ Each environment VNet contains:
 - a user node subnet, default `/24`
 - a private endpoint subnet, default `/27`
 
-The cluster user-assigned identity receives Network Contributor on the VNet before cluster creation. Production creates `private.<region>.azmk8s.io` or an approved subzone and links it to the VNet. The cluster identity receives Private DNS Zone Contributor on that zone before cluster creation. The zone choice is replacement-sensitive and cannot be changed in place. ACR and Key Vault use `privatelink.azurecr.io` and `privatelink.vaultcore.azure.net` private DNS zones and private endpoints in production.
+The cluster user-assigned identity receives Network Contributor on the VNet before cluster creation. AKS Automatic uses API Server VNet Integration, so production creates `private.<region>.azmk8s.io` or an approved subzone and links it to the VNet; `privatelink.<region>.azmk8s.io` applies to the separate Private Link-based AKS model. The cluster identity receives Private DNS Zone Contributor on the zone before cluster creation. The zone choice is replacement-sensitive and cannot be changed in place. ACR and Key Vault use `privatelink.azurecr.io` and `privatelink.vaultcore.azure.net` private DNS zones and private endpoints in production.
 
 The connected production operator network must resolve the AKS, ACR, and Key Vault FQDNs through conditional forwarding, Azure Private DNS Resolver, or an existing equivalent path. Preflight records the prerequisite before deployment; post-deploy verification requires those FQDNs to resolve to the expected private addresses and TCP connectivity to succeed.
 
