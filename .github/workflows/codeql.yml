@@ -1,0 +1,103 @@
+name: CodeQL
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # CodeQL scans workflow YAML as "actions"; generic JSON/YAML have no CodeQL extractor.
+  detect-languages:
+    name: Detect CodeQL languages
+    runs-on: ubuntu-latest
+    outputs:
+      languages: ${{ steps.detect.outputs.languages }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Detect source languages
+        id: detect
+        shell: bash
+        run: |
+          if find . -type f -name '*.py' -not -path './.git/*' -print -quit | grep -q .; then
+            echo 'languages=["actions","python"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'languages=["actions"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    needs: detect-languages
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(needs.detect-languages.outputs.languages) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+
+  validate-structured-data:
+    name: Validate JSON and YAML
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Parse JSON, YML, and YAML files
+        shell: ruby {0}
+        run: |
+          require "json"
+          require "psych"
+
+          failures = []
+          validated = 0
+
+          Dir.glob("**/*", File::FNM_DOTMATCH).sort.each do |path|
+            next unless File.file?(path)
+            next if path.start_with?(".git/")
+
+            extension = File.extname(path).downcase
+            next unless [".json", ".yml", ".yaml"].include?(extension)
+
+            begin
+              content = File.read(path)
+              extension == ".json" ? JSON.parse(content) : Psych.parse_stream(content, filename: path)
+              validated += 1
+            rescue JSON::ParserError, Psych::SyntaxError => error
+              failures << "#{path}: #{error.message}"
+            end
+          end
+
+          abort failures.join("\n") unless failures.empty?
+          puts "Validated #{validated} JSON/YAML files"
