@@ -6,7 +6,7 @@ file tracks *what the project has and is building*; the GitHub Project board
 
 ## Implemented
 
-| Capability | Feature slug | Tracking issue | PRD doc | Docs | Landed |
+| Capability | Feature slug | Tracking issue | Design doc | Docs | Landed |
 | --- | --- | --- | --- | --- | --- |
 | Repository scaffold and project overview | `project-scaffold` | — | — | [Project overview](../README.md) | 2026-08-04 |
 | Example development workflow and static security automation | `example-development-workflow` | — | — | [Workflow skill](../.github/skills/example-development-workflow/SKILL.md) | 2026-08-05 |
@@ -20,7 +20,7 @@ file tracks *what the project has and is building*; the GitHub Project board
 
 ## In progress
 
-| Capability | Feature slug | Tracking issue | PRD doc | Docs |
+| Capability | Feature slug | Tracking issue | Design doc | Docs |
 | --- | --- | --- | --- | --- |
 | AKS Automatic infrastructure foundation | `aks-automatic-foundation` | [#5](https://github.com/toddysm/aiks/issues/5) | [Architecture design](architecture/infrastructure/aks-automatic-foundation.md) | — |
 
@@ -40,7 +40,7 @@ file tracks *what the project has and is building*; the GitHub Project board
 
 | Gap | Notes |
 | --- | --- |
-| CLI and environment configuration contract is not landed | [#6](https://github.com/toddysm/aiks/issues/6) is open; implementation exists only in the local working tree and has no pull request. |
+| CLI and environment configuration contract is not landed | [#6](https://github.com/toddysm/aiks/issues/6) is open and has no implementation pull request. |
 | Bicep AKS Automatic foundation is not implemented | Tracked by [#7](https://github.com/toddysm/aiks/issues/7). |
 | Terraform foundation and Azure state lifecycle are not implemented | Tracked by [#8](https://github.com/toddysm/aiks/issues/8). |
 | Readiness application and Helm lifecycle are not implemented | Tracked by [#9](https://github.com/toddysm/aiks/issues/9). |
