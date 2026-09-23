@@ -60,7 +60,9 @@ class OperationResult:
     def render(self, console: Console | None = None) -> None:
         target = console if console is not None else Console()
         status = "[green]succeeded[/green]" if self.succeeded else "[red]failed[/red]"
+        context = redact(self.context)
         target.print(
             f"{self.operation} {status} during {self.phase} "
-            f"({self.duration_seconds:.3f}s, correlation {self.correlation_id})"
+            f"({self.duration_seconds:.3f}s, correlation {self.correlation_id}, "
+            f"context {context})"
         )

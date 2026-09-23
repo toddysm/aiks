@@ -40,3 +40,14 @@ def test_filter_redacts_structured_context_before_handler_formatting() -> None:
     emitted = stream.getvalue()
     assert "secret-value" not in emitted
     assert "<redacted>" in emitted
+
+
+def test_filter_redacts_labeled_positional_secret() -> None:
+    stream = StringIO()
+    logger = configure_logging(stream=stream)
+
+    logger.info("password=%s", "raw-password")
+
+    emitted = stream.getvalue()
+    assert "raw-password" not in emitted
+    assert "password=<redacted>" in emitted

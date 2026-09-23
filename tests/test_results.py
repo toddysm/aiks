@@ -70,6 +70,9 @@ def test_failed_result_is_redacted_in_json_text_and_logs(tmp_path: Path) -> None
     assert payload["context"]["token"] == "<redacted>"
     assert "test.failure failed during unit" in rendered
     assert "failure-correlation" in rendered
+    assert "'safe'" in rendered
+    assert "'value'" in rendered
+    assert "'token': '<redacted>'" in rendered
     assert "secret-value" not in rendered
     assert "secret-value" not in path.read_text()
     assert "ERROR" in stream.getvalue()

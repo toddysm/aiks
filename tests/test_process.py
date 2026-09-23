@@ -45,3 +45,32 @@ def test_run_command_redacts_output(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert "abc.def" not in result.stdout
     assert "value" not in result.stderr
+
+
+def test_run_command_normalizes_missing_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(*_: object, **__: object) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError("Password=missing-tool-secret")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = run_command(["missing-tool"])
+
+    assert result.return_code == 127
+    assert not result.succeeded
+    assert "missing-tool-secret" not in result.stderr
+    assert "Password=<redacted>" in result.stderr
+
+
+def test_run_command_normalizes_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(*_: object, **__: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(
+            ["tool"], 1, output="Bearer timeout.secret", stderr="ClientSecret=hidden"
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = run_command(["tool"], timeout_seconds=1)
+
+    assert result.return_code == 124
+    assert "timeout.secret" not in result.stdout
+    assert "hidden" not in result.stderr

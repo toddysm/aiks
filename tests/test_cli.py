@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
 from click.testing import CliRunner
 
 from aiks.cli import cli
@@ -122,3 +123,18 @@ def test_schema_command_writes_schema(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert json.loads(output.read_text())["title"] == "EnvironmentConfig"
+
+
+def test_invalid_configuration_redacts_click_error(tmp_path: Path) -> None:
+    raw = yaml.safe_load(DEV.read_text())
+    raw["spec"]["naming"]["prefix"] = "Bearer abc.def"
+    path = tmp_path / "invalid.yaml"
+    path.write_text(yaml.safe_dump(raw))
+
+    result = CliRunner().invoke(
+        cli, ["infra", "validate", "--config", str(path), "--engine", "bicep"]
+    )
+
+    assert result.exit_code == 1
+    assert "abc.def" not in result.output
+    assert "<redacted>" in result.output

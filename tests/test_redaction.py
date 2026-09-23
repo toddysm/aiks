@@ -19,3 +19,25 @@ def test_text_redaction() -> None:
     assert "abc.def" not in redacted
     assert "key-value" not in redacted
     assert "signature" not in redacted
+
+
+def test_text_redaction_covers_credential_and_sensitive_output_formats() -> None:
+    value = """Password=password-value
+ClientSecret=client-value
+connectionString=connection-value
+client-key-data: kube-value
+?client_secret=query-value
+{"sensitive": true, "value": "terraform-value"}
+"""
+
+    redacted = redact_text(value)
+
+    for secret in (
+        "password-value",
+        "client-value",
+        "connection-value",
+        "kube-value",
+        "query-value",
+        "terraform-value",
+    ):
+        assert secret not in redacted

@@ -14,7 +14,17 @@ _SENSITIVE_KEY = re.compile(
 _VALUE_PATTERNS = (
     re.compile(r"(?i)(Bearer\s+)[A-Za-z0-9._~+/=-]+"),
     re.compile(r"(?i)(AccountKey=)[^;\s]+"),
-    re.compile(r"(?i)([?&](?:sig|token)=)[^&\s]+"),
+    re.compile(r"(?i)([?&](?:sig|token|client_secret)=)[^&\s]+"),
+    re.compile(
+        r"(?i)((?:[\"']?)(?:password|client[_-]?secret|secret|authorization|"
+        r"connection[_-]?string|account[_-]?key|sharedaccesssignature|"
+        r"client-key-data|token)(?:[\"']?)\s*[:=]\s*)"
+        r"(?:\"[^\"]*\"|'[^']*'|[^\s;,}\]]+)"
+    ),
+    re.compile(
+        r'(?is)("sensitive"\s*:\s*true(?:(?!\n\s*}).){0,500}?"value"\s*:\s*")'
+        r"[^\"]*"
+    ),
 )
 
 

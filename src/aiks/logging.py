@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
-from typing import Any, TextIO, cast
+from typing import TextIO
 
 from aiks.redaction import redact, redact_text
 
@@ -16,11 +15,8 @@ class RedactingFilter(logging.Filter):
     """Redact message arguments and structured context before handler emission."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = redact_text(str(record.msg))
-        if isinstance(record.args, Mapping):
-            record.args = cast(dict[str, Any], redact(record.args))
-        elif isinstance(record.args, tuple):
-            record.args = tuple(redact(argument) for argument in record.args)
+        record.msg = redact_text(record.getMessage())
+        record.args = ()
 
         for name in record.__dict__.keys() - _STANDARD_ATTRIBUTES:
             setattr(record, name, redact(getattr(record, name)))

@@ -34,8 +34,9 @@ def _load(path: Path) -> EnvironmentConfig:
     try:
         return load_environment_config(path)
     except (ValueError, ValidationError) as error:
-        LOGGER.error("configuration load failed: %s", redact_text(str(error)))
-        raise click.ClickException(str(error)) from error
+        message = redact_text(str(error))
+        LOGGER.error("configuration load failed: %s", message)
+        raise click.ClickException(message) from error
 
 
 def _pending(issue: int) -> NoReturn:
