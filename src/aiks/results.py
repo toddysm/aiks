@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -39,8 +40,25 @@ class OperationResult:
         content = json.dumps(self.as_dict(), indent=2, sort_keys=True) + "\n"
         path.write_text(content, encoding="utf-8")
 
+    def log(self, logger: logging.Logger | None = None) -> None:
+        """Log the operation through the local, redacted result boundary."""
+
+        target = logger or logging.getLogger("aiks")
+        level = logging.INFO if self.succeeded else logging.ERROR
+        payload = self.as_dict()
+        target.log(
+            level,
+            "operation=%s phase=%s succeeded=%s duration=%.3f correlation=%s context=%s",
+            payload["operation"],
+            payload["phase"],
+            payload["succeeded"],
+            payload["durationSeconds"],
+            payload["correlationId"],
+            payload["context"],
+        )
+
     def render(self, console: Console | None = None) -> None:
-        target = console or Console()
+        target = console if console is not None else Console()
         status = "[green]succeeded[/green]" if self.succeeded else "[red]failed[/red]"
         target.print(
             f"{self.operation} {status} during {self.phase} "

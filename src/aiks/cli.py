@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from time import perf_counter
 from typing import NoReturn
@@ -11,8 +12,11 @@ from pydantic import ValidationError
 
 from aiks import __version__
 from aiks.config import EnvironmentConfig, load_environment_config, write_schema
+from aiks.logging import configure_logging
+from aiks.redaction import redact_text
 from aiks.results import OperationResult
 
+LOGGER = logging.getLogger(__name__)
 ENGINE = click.Choice(("bicep", "terraform"), case_sensitive=False)
 TARGET = click.Choice(("kind", "aks"), case_sensitive=False)
 CONFIG_OPTION = click.option(
@@ -30,10 +34,12 @@ def _load(path: Path) -> EnvironmentConfig:
     try:
         return load_environment_config(path)
     except (ValueError, ValidationError) as error:
+        LOGGER.error("configuration load failed: %s", redact_text(str(error)))
         raise click.ClickException(str(error)) from error
 
 
 def _pending(issue: int) -> NoReturn:
+    LOGGER.warning("command is pending implementation in GitHub issue #%s", issue)
     raise click.ClickException(f"command is not implemented yet; tracked by GitHub issue #{issue}")
 
 
@@ -50,6 +56,8 @@ def _confirm_destroy(config: EnvironmentConfig, allow_production_destroy: bool) 
 @click.version_option(version=__version__)
 def cli() -> None:
     """Build and validate reproducible AI workload foundations on AKS."""
+
+    configure_logging()
 
 
 @cli.group("config")
@@ -102,6 +110,7 @@ def validate(config_path: Path, engine: str, json_output: Path | None) -> None:
             "location": config.spec.location,
         },
     )
+    result.log()
     result.render()
     if json_output:
         result.write_json(json_output)

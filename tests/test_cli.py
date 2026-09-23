@@ -41,6 +41,7 @@ def test_validate_writes_redacted_machine_result(tmp_path: Path) -> None:
     assert payload["succeeded"] is True
     assert payload["context"] == {"engine": "bicep", "environment": "dev", "location": "westus3"}
     assert "correlationId" in payload
+    assert "operation=infra.validate" in result.output
 
 
 def test_pending_command_fails_clearly() -> None:

@@ -64,6 +64,10 @@ The result boundary redacts credential-shaped keys, bearer tokens, storage accou
 signatures, and connection strings before writing logs or JSON. The subprocess adapter invokes
 tools with argument arrays and never enables a shell.
 
+The CLI uses Python standard logging on local stderr. A package-level filter redacts message
+arguments and structured context before handlers emit a record. No file, network, or remote
+telemetry handler is configured.
+
 The CLI sends no product usage telemetry. Correlation IDs and operation summaries remain local
 unless an operator explicitly attaches a sanitized report to GitHub.
 
