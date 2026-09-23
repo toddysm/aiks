@@ -13,8 +13,11 @@ covered by automated tests. No Azure deployment has been executed for this work.
 Runtime idempotence, resource-provider acceptance, private connectivity, identity
 propagation, collector ingestion, dashboard queries, and alert delivery remain
 unverified. A successful Bicep build does not establish any of those properties.
-The accepted architecture requires operator lifecycle evidence before merge unless
-the user explicitly approves changing that gate.
+On 2026-09-23, the user approved moving issue #7's live deployment and idempotence
+evidence to #11 (execution) and #12 (final acceptance evidence). Issue #7 may merge
+once its static checks and reviews pass. The full foundation still requires live
+dev and private production-shaped validation with both engines before completion.
+This deferral does not authorize Azure deployment or deletion.
 
 ## Prerequisites
 

@@ -569,6 +569,16 @@ No PR job authenticates to Azure or deploys cloud resources.
 
 Before implementation completion, a connected operator runs one complete dev lifecycle and one complete private production-shaped lifecycle with each engine, using sequential isolated environments to avoid cross-engine ownership. If any lifecycle cannot be executed, the corresponding acceptance criteria remain unmet and the implementation PR cannot merge without an explicit user-approved scope change.
 
+On 2026-09-23, the user approved deferring issue #7's live deployment and
+idempotence evidence to issues #11 and #12. Issue #11 owns executing the live
+deployment, repeat-deployment, operational verification, and cleanup tests;
+issue #12 owns collecting the sanitized cross-engine acceptance evidence.
+Issue #7 and pull request #20 may merge after their static checks and review
+requirements pass, without this live evidence. This exception changes sequencing
+only: the full foundation cannot be declared deployment-validated or complete
+until the required dev and private production-shaped lifecycles pass for both
+engines. Azure deployment and deletion still require separate authorization.
+
 Verification captures ARM state, private DNS answers, TCP reachability, Kubernetes conditions, ACR image pull, Workload Identity, Prometheus target/sample discovery, DCR/DCRA associations, Grafana linkage, alert rules, redacted Terraform state shape, repeated plan/what-if output, Helm lifecycle, readiness timing, and post-destroy residuals.
 
 ### Cleanup semantics
