@@ -81,6 +81,36 @@ def test_production_requires_action_group_or_receiver(tmp_path: Path) -> None:
         load_environment_config(path)
 
 
+def test_requires_admin_group(tmp_path: Path) -> None:
+    raw = yaml.safe_load((CONFIG_DIR / "dev.example.yaml").read_text())
+    del raw["spec"]["identity"]["adminGroupObjectId"]
+    path = tmp_path / "invalid.yaml"
+    path.write_text(yaml.safe_dump(raw))
+
+    with pytest.raises(ValidationError, match=r"(?s)adminGroupObjectId.*Field required"):
+        load_environment_config(path)
+
+
+@pytest.mark.parametrize(
+    ("setting", "message"),
+    [
+        ("containerInsights", "Container Insights"),
+        ("managedPrometheus", "managed Prometheus"),
+        ("managedGrafana", "managed Grafana"),
+    ],
+)
+def test_production_requires_each_observability_capability(
+    tmp_path: Path, setting: str, message: str
+) -> None:
+    raw = yaml.safe_load((CONFIG_DIR / "production.example.yaml").read_text())
+    raw["spec"]["observability"][setting] = False
+    path = tmp_path / "invalid.yaml"
+    path.write_text(yaml.safe_dump(raw))
+
+    with pytest.raises(ValidationError, match=message):
+        load_environment_config(path)
+
+
 def test_dev_requires_restricted_paas_access(tmp_path: Path) -> None:
     raw = yaml.safe_load((CONFIG_DIR / "dev.example.yaml").read_text())
     raw["spec"]["network"]["paasAllowedIpRanges"] = []

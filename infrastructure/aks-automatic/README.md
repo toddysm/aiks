@@ -71,6 +71,17 @@ telemetry handler is configured.
 The CLI sends no product usage telemetry. Correlation IDs and operation summaries remain local
 unless an operator explicitly attaches a sanitized report to GitHub.
 
+## Destroy safeguards
+
+Destroy protection is operational CLI behavior, not environment configuration. YAML cannot
+disable or weaken it. Every environment and Terraform state destroy command requires the operator
+to type the selected environment name. Production additionally requires the explicit
+`--allow-production-destroy` flag before prompting. Environment destruction never removes the
+Terraform backend; state cleanup remains a separate guarded command.
+
+The commands currently stop at tracked placeholders. Issues #8 and #11 implement the state and
+environment deletion behavior while retaining these safeguards.
+
 ## Issue #6 validation
 
 ```bash
@@ -79,6 +90,14 @@ unless an operator explicitly attaches a sanitized report to GitHub.
 .venv/bin/ruff format --check src tests
 .venv/bin/mypy src
 .venv/bin/bandit -q -r src
+.venv/bin/pip-audit
+
+schema_output="$(mktemp)"
+.venv/bin/aiks config schema --output "$schema_output"
+cmp "$schema_output" infrastructure/aks-automatic/config/schema.json
+rm "$schema_output"
+
+_AIKS_COMPLETE=zsh_source .venv/bin/aiks | grep -q '#compdef aiks'
 ```
 
 Azure deployment and Helm lifecycle commands are implemented by subsequent work items in
