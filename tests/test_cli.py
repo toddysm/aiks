@@ -138,3 +138,18 @@ def test_invalid_configuration_redacts_click_error(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "abc.def" not in result.output
     assert "<redacted>" in result.output
+
+
+def test_secret_shaped_extra_field_never_reaches_click_error(tmp_path: Path) -> None:
+    raw = yaml.safe_load(DEV.read_text())
+    raw["spec"]["apiKey"] = "arbitrary-secret-value"
+    path = tmp_path / "invalid.yaml"
+    path.write_text(yaml.safe_dump(raw))
+
+    result = CliRunner().invoke(
+        cli, ["infra", "validate", "--config", str(path), "--engine", "bicep"]
+    )
+
+    assert result.exit_code == 1
+    assert "arbitrary-secret-value" not in result.output
+    assert "secret-shaped configuration field is prohibited: spec.apiKey" in result.output

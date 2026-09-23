@@ -8,7 +8,8 @@ from typing import Any
 
 REDACTED = "<redacted>"
 _SENSITIVE_KEY = re.compile(
-    r"(?:password|secret|token|authorization|connection.?string|account.?key|sas|kubeconfig)",
+    r"(?:password|secret|token|authorization|api.?key|access.?key|client.?key.?data|"
+    r"connection.?string|account.?key|storage.?key|shared.?access.?key|sas|kubeconfig)",
     re.IGNORECASE,
 )
 _VALUE_PATTERNS = (
@@ -17,8 +18,9 @@ _VALUE_PATTERNS = (
     re.compile(r"(?i)([?&](?:sig|token|client_secret)=)[^&\s]+"),
     re.compile(
         r"(?i)((?:[\"']?)(?:password|client[_-]?secret|secret|authorization|"
-        r"connection[_-]?string|account[_-]?key|sharedaccesssignature|"
-        r"client-key-data|token)(?:[\"']?)\s*[:=]\s*)"
+        r"api[_-]?key|access[_-]?key|connection[_-]?string|account[_-]?key|"
+        r"storage[_-]?key|shared[_-]?access[_-]?(?:key|signature)|client-key-data|token)"
+        r"(?:[\"']?)\s*[:=]\s*)"
         r"(?:\"[^\"]*\"|'[^']*'|[^\s;,}\]]+)"
     ),
     re.compile(

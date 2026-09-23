@@ -37,9 +37,12 @@ def test_rejects_overlapping_subnets(tmp_path: Path) -> None:
         load_environment_config(path)
 
 
-def test_rejects_secret_shaped_field(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "key", ["clientSecret", "apiKey", "accessKey", "storageKey", "client-key-data"]
+)
+def test_rejects_secret_shaped_field(tmp_path: Path, key: str) -> None:
     raw = yaml.safe_load((CONFIG_DIR / "dev.example.yaml").read_text())
-    raw["spec"]["clientSecret"] = "not-a-real-secret"
+    raw["spec"][key] = "not-a-real-secret"
     path = tmp_path / "invalid.yaml"
     path.write_text(yaml.safe_dump(raw))
 

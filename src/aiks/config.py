@@ -17,7 +17,8 @@ EnvironmentName = Literal["dev", "production"]
 _AZURE_NAME = re.compile(r"^[a-z][a-z0-9-]{1,22}[a-z0-9]$")
 _STORAGE_NAME = re.compile(r"^[a-z0-9]{3,24}$")
 _FORBIDDEN_KEYS = re.compile(
-    r"(?:password|secret|token|client.?secret|connection.?string|storage.?key|sas.?token|kubeconfig)",
+    r"(?:password|secret|token|api.?key|access.?key|client.?secret|client.?key.?data|"
+    r"connection.?string|storage.?key|shared.?access.?key|sas.?token|kubeconfig)",
     re.IGNORECASE,
 )
 

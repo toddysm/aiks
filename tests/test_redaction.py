@@ -4,12 +4,30 @@ from aiks.redaction import REDACTED, redact, redact_text
 def test_recursive_redaction() -> None:
     value = {
         "clientSecret": "secret-value",
-        "nested": [{"safe": "value", "token": "token-value"}],
+        "nested": [
+            {
+                "safe": "value",
+                "token": "token-value",
+                "apiKey": "api-value",
+                "storageKey": "storage-value",
+                "SharedAccessKey": "shared-value",
+                "client-key-data": "kube-value",
+            }
+        ],
     }
 
     assert redact(value) == {
         "clientSecret": REDACTED,
-        "nested": [{"safe": "value", "token": REDACTED}],
+        "nested": [
+            {
+                "safe": "value",
+                "token": REDACTED,
+                "apiKey": REDACTED,
+                "storageKey": REDACTED,
+                "SharedAccessKey": REDACTED,
+                "client-key-data": REDACTED,
+            }
+        ],
     }
 
 
