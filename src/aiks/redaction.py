@@ -41,8 +41,14 @@ def redact(value: Any) -> Any:
     """Recursively redact sensitive keys and string values."""
 
     if isinstance(value, Mapping):
+        terraform_sensitive = value.get("sensitive") is True
         return {
-            str(key): REDACTED if _SENSITIVE_KEY.search(str(key)) else redact(child)
+            str(key): (
+                REDACTED
+                if _SENSITIVE_KEY.search(str(key))
+                or (terraform_sensitive and str(key).casefold() == "value")
+                else redact(child)
+            )
             for key, child in value.items()
         }
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):

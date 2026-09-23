@@ -13,6 +13,12 @@ def test_recursive_redaction() -> None:
     }
 
 
+def test_recursive_redaction_honors_terraform_sensitive_marker() -> None:
+    value = {"output": {"sensitive": True, "value": "terraform-secret", "type": "string"}}
+
+    assert redact(value) == {"output": {"sensitive": True, "value": REDACTED, "type": "string"}}
+
+
 def test_text_redaction() -> None:
     redacted = redact_text("Bearer abc.def AccountKey=key-value?sig=signature")
 

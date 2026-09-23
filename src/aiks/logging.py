@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import traceback
 from typing import TextIO
 
 from aiks.redaction import redact, redact_text
@@ -17,6 +18,13 @@ class RedactingFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.msg = redact_text(record.getMessage())
         record.args = ()
+        if record.exc_info:
+            exception_text = "".join(traceback.format_exception(*record.exc_info))
+            record.msg = f"{record.msg}\n{redact_text(exception_text)}"
+            record.exc_info = None
+            record.exc_text = None
+        if record.stack_info:
+            record.stack_info = redact_text(record.stack_info)
 
         for name in record.__dict__.keys() - _STANDARD_ATTRIBUTES:
             setattr(record, name, redact(getattr(record, name)))

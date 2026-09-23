@@ -51,3 +51,18 @@ def test_filter_redacts_labeled_positional_secret() -> None:
     emitted = stream.getvalue()
     assert "raw-password" not in emitted
     assert "password=<redacted>" in emitted
+
+
+def test_filter_redacts_exception_traceback() -> None:
+    stream = StringIO()
+    logger = configure_logging(stream=stream)
+
+    try:
+        raise ValueError("ClientSecret=traceback-secret")
+    except ValueError:
+        logger.exception("operation failed")
+
+    emitted = stream.getvalue()
+    assert "traceback-secret" not in emitted
+    assert "ClientSecret=<redacted>" in emitted
+    assert "ValueError" in emitted

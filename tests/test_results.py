@@ -52,7 +52,11 @@ def test_failed_result_is_redacted_in_json_text_and_logs(tmp_path: Path) -> None
         phase="unit",
         succeeded=False,
         duration_seconds=0.2,
-        context={"token": "secret-value", "safe": "value"},
+        context={
+            "token": "secret-value",
+            "safe": "value",
+            "terraform": {"sensitive": True, "value": "terraform-secret"},
+        },
         correlation_id="failure-correlation",
     )
     path = tmp_path / "failure.json"
@@ -68,12 +72,14 @@ def test_failed_result_is_redacted_in_json_text_and_logs(tmp_path: Path) -> None
     rendered = console.export_text()
     assert payload["succeeded"] is False
     assert payload["context"]["token"] == "<redacted>"
+    assert payload["context"]["terraform"]["value"] == "<redacted>"
     assert "test.failure failed during unit" in rendered
     assert "failure-correlation" in rendered
     assert "'safe'" in rendered
     assert "'value'" in rendered
     assert "'token': '<redacted>'" in rendered
     assert "secret-value" not in rendered
+    assert "terraform-secret" not in rendered
     assert "secret-value" not in path.read_text()
     assert "ERROR" in stream.getvalue()
     assert "succeeded=False" in stream.getvalue()

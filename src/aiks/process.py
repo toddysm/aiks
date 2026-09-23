@@ -53,18 +53,20 @@ def run_command(
             timeout=timeout_seconds,
         )
     except subprocess.TimeoutExpired as error:
+        timeout_message = f"command timed out after {error.timeout} seconds"
         return CommandResult(
             arguments=normalized,
             return_code=124,
             stdout=redact_text(_captured_text(error.stdout)),
-            stderr=redact_text(_captured_text(error.stderr) or str(error)),
+            stderr=redact_text(_captured_text(error.stderr) or timeout_message),
         )
     except OSError as error:
+        error_message = error.strerror or "unable to start command"
         return CommandResult(
             arguments=normalized,
             return_code=127,
             stdout="",
-            stderr=redact_text(str(error)),
+            stderr=redact_text(f"unable to start command: {error_message}"),
         )
     return CommandResult(
         arguments=normalized,
