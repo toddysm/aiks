@@ -21,6 +21,19 @@ def test_help_exposes_accepted_command_groups() -> None:
         assert command in result.output
 
 
+def test_console_entry_point_generates_zsh_completion() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [],
+        prog_name="aiks",
+        env={"_AIKS_COMPLETE": "zsh_source"},
+    )
+
+    assert result.exit_code == 0
+    assert "#compdef aiks" in result.output
+    assert "_aiks_completion" in result.output
+
+
 def test_validate_writes_redacted_machine_result(tmp_path: Path) -> None:
     output = tmp_path / "result.json"
     result = CliRunner().invoke(
