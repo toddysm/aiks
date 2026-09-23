@@ -285,6 +285,45 @@ def test_exact_roles_federation_and_alerts(compiled):
     assert "KubePodInventory" in text
 
 
+def test_legacy_diagnostics_metric_contract(compiled):
+    diagnostics = next(
+        resource
+        for resource in all_resources(compiled)
+        if resource["type"].lower() == "microsoft.insights/diagnosticsettings"
+    )
+    assert diagnostics["apiVersion"] == "2016-09-01"
+    assert diagnostics["name"] == "service"
+    assert diagnostics["properties"]["metrics"] == [
+        {"timeGrain": "PT1M", "enabled": True, "retentionPolicy": {"enabled": False, "days": 0}}
+    ]
+    assert "Microsoft.ContainerService/managedClusters" in diagnostics["scope"]
+    assert (
+        diagnostics["properties"]["workspaceId"] == "[parameters('monitoringInfo').logAnalyticsId]"
+    )
+
+
+def test_grafana_reader_is_scoped_to_metrics_workspace(compiled):
+    reader_template = next(
+        resource["properties"]["template"]
+        for resource in all_resources(compiled)
+        if resource["type"] == "Microsoft.Resources/deployments"
+        and resource["properties"]["template"].get("variables", {}).get("monitoringReaderRole")
+        == "43d0d8ad-25c7-4714-9337-8ba259a9fe05"
+    )
+    assignments = [
+        resource
+        for resource in all_resources(reader_template)
+        if resource["type"] == "Microsoft.Authorization/roleAssignments"
+    ]
+    assert len(assignments) == 1
+    assignment = assignments[0]
+    assert "Microsoft.Monitor/accounts" in assignment["scope"]
+    assert "workspaceName" in assignment["scope"]
+    assert assignment["properties"]["principalId"] == "[parameters('principalId')]"
+    assert assignment["properties"]["principalType"] == "ServicePrincipal"
+    assert "monitoringReaderRole" in assignment["properties"]["roleDefinitionId"]
+
+
 def test_output_schema_matches_template(compiled):
     foundation = module_template(compiled, "foundation")
     fields = set(foundation["outputs"]["result"]["value"])

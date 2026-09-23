@@ -98,6 +98,9 @@ preview uses `virtualNetworkSubnetResourceId`, not the historical `id` field.
 See the [official registry change log](https://learn.microsoft.com/en-us/azure/templates/microsoft.containerregistry/change-log/registries).
 Read-only registry references use stable 2025-11-01. Legacy stable diagnostics
 uses the fixed name `service` and `timeGrain`, rather than newer preview fields.
+The pinned [2016-09-01 MetricSettings contract](https://learn.microsoft.com/en-us/azure/templates/microsoft.insights/2016-09-01/diagnosticsettings#metricsettings)
+requires `timeGrain` and has no metric `category` property; examples on that page
+using `AllMetrics` target a different, preview API. Offline tests pin this shape.
 
 Resource-group names include a deterministic subscription/environment/prefix hash.
 Registry and vault names use the same inputs with service-specific length constraints.
@@ -121,6 +124,12 @@ Key Vault Reader at the vault, with federation restricted to
 `system:serviceaccount:aiks-readiness:readiness`. Grafana's identity receives
 Monitoring Reader at the Azure Monitor workspace. No subscription-wide workload
 role or vault secret-reading permission is granted.
+
+The [Azure Monitor workspace access documentation](https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/azure-monitor-workspace-manage-access#monitoring-reader)
+explicitly grants Monitoring Reader workspace settings and query access through
+`*/read`. The Grafana assignment is scoped to the metrics workspace, not the
+subscription. No additional data-reader role is required by that documented
+contract. Tests pin this role and scope; effective live access remains a #11 check.
 
 ## Outputs and Monitoring
 

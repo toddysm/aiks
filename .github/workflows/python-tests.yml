@@ -43,6 +43,9 @@ jobs:
           "$RUNNER_TEMP/bicep" --version
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
+      - name: Lint Bicep foundation
+        run: bicep lint infrastructure/aks-automatic/bicep/main.bicep
+
       - name: Check Bicep formatting
         shell: bash
         run: |
