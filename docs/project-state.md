@@ -11,6 +11,8 @@ file tracks *what the project has and is building*; the GitHub Project board
 | Repository scaffold and project overview | `project-scaffold` | — | — | [Project overview](../README.md) | 2026-08-04 |
 | Example development workflow and static security automation | `example-development-workflow` | — | — | [Workflow skill](../.github/skills/example-development-workflow/SKILL.md) | 2026-08-05 |
 | Accepted AKS Automatic foundation architecture | `aks-automatic-foundation-design` | [#3](https://github.com/toddysm/aiks/issues/3) | [Architecture design](architecture/infrastructure/aks-automatic-foundation.md) | [Architecture design](architecture/infrastructure/aks-automatic-foundation.md) | 2026-08-05 |
+| CLI and environment configuration contract, logging, tests, and Python quality automation | `aks-automatic-cli-contract` | [#6](https://github.com/toddysm/aiks/issues/6) | [Architecture design](architecture/infrastructure/aks-automatic-foundation.md) | [CLI usage](../infrastructure/aks-automatic/README.md) | 2026-09-23 |
+| Bicep foundation modules, engine adapter, and offline policy validation | `aks-automatic-bicep` | [#7](https://github.com/toddysm/aiks/issues/7) | [Architecture design](architecture/infrastructure/aks-automatic-foundation.md) | [Bicep usage and limits](../infrastructure/aks-automatic/bicep/README.md) | 2026-09-23 |
 
 > NOTE: The first two rows are inferred from the repository and merged pull
 > requests [#1](https://github.com/toddysm/aiks/pull/1) and
@@ -40,10 +42,9 @@ file tracks *what the project has and is building*; the GitHub Project board
 
 | Gap | Notes |
 | --- | --- |
-| CLI and environment configuration contract is not landed | [#6](https://github.com/toddysm/aiks/issues/6) is open and has no implementation pull request. |
-| Bicep AKS Automatic foundation is not implemented | Tracked by [#7](https://github.com/toddysm/aiks/issues/7). |
+| Bicep foundation is not live deployment-validated | [PR #20](https://github.com/toddysm/aiks/pull/20) supplies the modules, adapters, and offline checks for #7. The registry-only `2026-03-01-preview` exception and deferral of live deployment/idempotence evidence to #11/#12 were approved on 2026-09-23. No Azure deployment was performed; full lifecycle orchestration and final feature acceptance remain outstanding. |
 | Terraform foundation and Azure state lifecycle are not implemented | Tracked by [#8](https://github.com/toddysm/aiks/issues/8). |
 | Readiness application and Helm lifecycle are not implemented | Tracked by [#9](https://github.com/toddysm/aiks/issues/9). |
 | Infrastructure-as-code parity and comprehensive static CI are incomplete | Tracked by [#10](https://github.com/toddysm/aiks/issues/10). Existing CodeQL automation covers only part of this work. |
-| Azure lifecycle verification and protected cleanup are not implemented | Tracked by [#11](https://github.com/toddysm/aiks/issues/11). |
-| Foundation documentation and acceptance evidence are incomplete | Tracked by [#12](https://github.com/toddysm/aiks/issues/12). |
+| Azure lifecycle verification and protected cleanup are not implemented | [#11](https://github.com/toddysm/aiks/issues/11) also owns the live deployment and repeat-deployment tests deferred from #7 on 2026-09-23. |
+| Foundation documentation and acceptance evidence are incomplete | [#12](https://github.com/toddysm/aiks/issues/12) owns the sanitized final cross-engine evidence, including the live validation deferred from #7. Full feature completion remains gated on that evidence. |

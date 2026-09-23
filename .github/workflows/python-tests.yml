@@ -30,7 +30,31 @@ jobs:
       - name: Install development dependencies
         run: python -m pip install -e '.[dev]'
 
+      - name: Install pinned Bicep compiler
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/Azure/bicep/releases/download/v0.46.1/bicep-linux-x64 \
+            --output "$RUNNER_TEMP/bicep"
+          printf '%s  %s\n' \
+            3e011d629ea4311b7a7dd8f0040ab2b1a072ea4ff5d02cb75e0e55a9a6703fb9 \
+            "$RUNNER_TEMP/bicep" | sha256sum --check --status
+          chmod +x "$RUNNER_TEMP/bicep"
+          "$RUNNER_TEMP/bicep" --version
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Lint Bicep foundation
+        run: bicep lint infrastructure/aks-automatic/bicep/main.bicep
+
+      - name: Check Bicep formatting
+        shell: bash
+        run: |
+          find infrastructure/aks-automatic/bicep -name '*.bicep' -exec bicep format {} \;
+          git diff --exit-code -- infrastructure/aks-automatic/bicep
+
       - name: Run tests
+        env:
+          AIKS_REQUIRE_BICEP: "1"
         run: python -m pytest
 
       - name: Run Ruff lint

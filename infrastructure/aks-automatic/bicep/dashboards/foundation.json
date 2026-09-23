@@ -1,0 +1,82 @@
+{
+  "uid": "aiks-foundation",
+  "title": "AIKS Foundation",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["aiks", "aks"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {
+    "list": [
+      {"name": "metrics", "type": "datasource", "query": "prometheus", "label": "Prometheus"},
+      {"name": "cluster", "type": "query", "datasource": {"type": "prometheus", "uid": "${metrics}"}, "query": "label_values(kube_node_info, cluster)", "refresh": 1}
+    ]
+  },
+  "panels": [
+    {
+      "id": 1, "title": "Node and pod readiness", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "${metrics}"},
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {"refId": "A", "expr": "sum(kube_node_status_condition{cluster=\"$cluster\",condition=\"Ready\",status=\"true\"})", "legendFormat": "Ready nodes"},
+        {"refId": "B", "expr": "sum(kube_pod_status_ready{cluster=\"$cluster\",condition=\"true\"})", "legendFormat": "Ready pods"}
+      ]
+    },
+    {
+      "id": 2, "title": "CPU requests and use", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "${metrics}"},
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {"refId": "A", "expr": "sum(kube_pod_container_resource_requests{cluster=\"$cluster\",resource=\"cpu\"})", "legendFormat": "Requested cores"},
+        {"refId": "B", "expr": "sum(rate(container_cpu_usage_seconds_total{cluster=\"$cluster\",container!=\"\",container!=\"POD\"}[5m]))", "legendFormat": "Used cores"}
+      ]
+    },
+    {
+      "id": 3, "title": "Memory requests and use", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "${metrics}"},
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "fieldConfig": {"defaults": {"unit": "bytes"}},
+      "targets": [
+        {"refId": "A", "expr": "sum(kube_pod_container_resource_requests{cluster=\"$cluster\",resource=\"memory\"})", "legendFormat": "Requested"},
+        {"refId": "B", "expr": "sum(container_memory_working_set_bytes{cluster=\"$cluster\",container!=\"\",container!=\"POD\"})", "legendFormat": "Used"}
+      ]
+    },
+    {
+      "id": 4, "title": "Node auto-provisioning", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "${metrics}"},
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {"refId": "A", "expr": "count(kube_node_info{cluster=\"$cluster\"})", "legendFormat": "Node count"},
+        {"refId": "B", "expr": "sum(kube_pod_status_phase{cluster=\"$cluster\",phase=\"Pending\"})", "legendFormat": "Pending pods"}
+      ]
+    },
+    {
+      "id": 5, "title": "Readiness latency and failures", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "${metrics}"},
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.95, sum by(le) (rate(aiks_readiness_duration_seconds_bucket{cluster=\"$cluster\"}[5m])))", "legendFormat": "p95 seconds"},
+        {"refId": "B", "expr": "sum(rate(aiks_readiness_failures_total{cluster=\"$cluster\"}[5m]))", "legendFormat": "Failures/s"}
+      ]
+    },
+    {
+      "id": 6, "title": "HTTP requests, errors and latency", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "${metrics}"},
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(aiks_http_requests_total{cluster=\"$cluster\"}[5m]))", "legendFormat": "Requests/s"},
+        {"refId": "B", "expr": "sum(rate(aiks_http_requests_total{cluster=\"$cluster\",status=~\"5..\"}[5m]))", "legendFormat": "Errors/s"},
+        {"refId": "C", "expr": "histogram_quantile(0.95, sum by(le) (rate(aiks_http_request_duration_seconds_bucket{cluster=\"$cluster\"}[5m])))", "legendFormat": "p95 seconds"}
+      ]
+    },
+    {
+      "id": 7, "title": "Alert state", "type": "table",
+      "datasource": {"type": "prometheus", "uid": "${metrics}"},
+      "gridPos": {"x": 0, "y": 24, "w": 24, "h": 8},
+      "targets": [
+        {"refId": "A", "expr": "ALERTS{cluster=\"$cluster\"}", "instant": true, "format": "table"}
+      ]
+    }
+  ]
+}
