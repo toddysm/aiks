@@ -43,7 +43,7 @@ file tracks *what the project has and is building*; the GitHub Project board
 | Gap | Notes |
 | --- | --- |
 | Bicep foundation is not live deployment-validated | [PR #20](https://github.com/toddysm/aiks/pull/20) supplies the modules, adapters, and offline checks for #7. The registry-only `2026-03-01-preview` exception and deferral of live deployment/idempotence evidence to #11/#12 were approved on 2026-09-23. No Azure deployment was performed; full lifecycle orchestration and final feature acceptance remain outstanding. |
-| Terraform foundation and Azure state lifecycle are not implemented | Tracked by [#8](https://github.com/toddysm/aiks/issues/8). |
+| Terraform foundation and Azure state lifecycle are not implemented | [#8](https://github.com/toddysm/aiks/issues/8) is blocked on provider/design compatibility: AzureRM 5.6.0 cannot express the accepted initial cluster network settings or registry subnet rules. The [provider-only checkpoint](../infrastructure/aks-automatic/terraform/README.md) records evidence; a resource-ownership exception needs approval. No live validation was performed. |
 | Readiness application and Helm lifecycle are not implemented | Tracked by [#9](https://github.com/toddysm/aiks/issues/9). |
 | Infrastructure-as-code parity and comprehensive static CI are incomplete | Tracked by [#10](https://github.com/toddysm/aiks/issues/10). Existing CodeQL automation covers only part of this work. |
 | Azure lifecycle verification and protected cleanup are not implemented | [#11](https://github.com/toddysm/aiks/issues/11) also owns the live deployment and repeat-deployment tests deferred from #7 on 2026-09-23. |
