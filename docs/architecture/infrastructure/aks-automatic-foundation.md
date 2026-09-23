@@ -393,6 +393,13 @@ The Bicep entry point runs at subscription scope to create the environment resou
 
 Modules separate naming, network, identity/RBAC, AKS, registry, vault/private endpoints, monitoring, and outputs. Resource API versions are pinned and reviewed explicitly. Bicep uses deterministic role-assignment GUIDs and declares dependencies where identity propagation or subnet permissions require ordering.
 
+For issue #7, the user authorized one registry-only API exception on 2026-09-23:
+`Microsoft.ContainerRegistry/registries@2026-03-01-preview`. Stable `2025-11-01`
+supports `LegacyRegistryPermissions` but omits the required dev subnet rules;
+the preview restores them using `virtualNetworkSubnetResourceId`. Other resource
+APIs remain stable. See the [registry API change log](https://learn.microsoft.com/en-us/azure/templates/microsoft.containerregistry/change-log/registries)
+and the [Bicep implementation notes](../../../infrastructure/aks-automatic/bicep/README.md).
+
 ### Terraform
 
 Terraform constrains AzureRM to `>= 5.0.1, < 6.0.0` and uses `azurerm_kubernetes_automatic_cluster` for the cluster. AzureRM resources manage the resource group, network, identities, RBAC, ACR, Key Vault, private endpoints/DNS, monitoring, alerts, and Grafana.
