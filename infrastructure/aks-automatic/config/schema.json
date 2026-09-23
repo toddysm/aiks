@@ -1,0 +1,319 @@
+{
+  "$defs": {
+    "ActionGroupReceiver": {
+      "additionalProperties": false,
+      "description": "Nonsecret email receiver used to create an environment action group.",
+      "properties": {
+        "emailAddress": {
+          "maxLength": 254,
+          "minLength": 3,
+          "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+          "title": "Emailaddress",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "emailAddress"
+      ],
+      "title": "ActionGroupReceiver",
+      "type": "object"
+    },
+    "EnvironmentSpec": {
+      "additionalProperties": false,
+      "description": "Complete environment specification.",
+      "properties": {
+        "environment": {
+          "enum": [
+            "dev",
+            "production"
+          ],
+          "title": "Environment",
+          "type": "string"
+        },
+        "identity": {
+          "$ref": "#/$defs/Identity"
+        },
+        "local": {
+          "$ref": "#/$defs/LocalKubernetes"
+        },
+        "location": {
+          "default": "westus3",
+          "pattern": "^[a-z0-9]+$",
+          "title": "Location",
+          "type": "string"
+        },
+        "naming": {
+          "$ref": "#/$defs/Naming"
+        },
+        "network": {
+          "$ref": "#/$defs/Network"
+        },
+        "observability": {
+          "$ref": "#/$defs/Observability"
+        },
+        "tags": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "object"
+        },
+        "terraform": {
+          "$ref": "#/$defs/TerraformState"
+        }
+      },
+      "required": [
+        "environment",
+        "naming",
+        "identity",
+        "network",
+        "observability",
+        "terraform"
+      ],
+      "title": "EnvironmentSpec",
+      "type": "object"
+    },
+    "Identity": {
+      "additionalProperties": false,
+      "description": "Nonsecret Microsoft Entra identity inputs.",
+      "properties": {
+        "adminGroupObjectId": {
+          "format": "uuid",
+          "title": "Admingroupobjectid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adminGroupObjectId"
+      ],
+      "title": "Identity",
+      "type": "object"
+    },
+    "LocalKubernetes": {
+      "additionalProperties": false,
+      "description": "Local kind target configuration.",
+      "properties": {
+        "kindClusterName": {
+          "default": "aiks-readiness",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "title": "Kindclustername",
+          "type": "string"
+        }
+      },
+      "title": "LocalKubernetes",
+      "type": "object"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "description": "Configuration metadata.",
+      "properties": {
+        "name": {
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Metadata",
+      "type": "object"
+    },
+    "Naming": {
+      "additionalProperties": false,
+      "description": "Azure resource naming inputs.",
+      "properties": {
+        "prefix": {
+          "title": "Prefix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prefix"
+      ],
+      "title": "Naming",
+      "type": "object"
+    },
+    "Network": {
+      "additionalProperties": false,
+      "description": "Day-0 network configuration.",
+      "properties": {
+        "apiServerSubnetCidr": {
+          "title": "Apiserversubnetcidr",
+          "type": "string"
+        },
+        "authorizedIpRanges": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authorizedipranges",
+          "type": "array"
+        },
+        "dnsServiceIp": {
+          "title": "Dnsserviceip",
+          "type": "string"
+        },
+        "paasAllowedIpRanges": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paasallowedipranges",
+          "type": "array"
+        },
+        "podCidr": {
+          "title": "Podcidr",
+          "type": "string"
+        },
+        "privateCluster": {
+          "title": "Privatecluster",
+          "type": "boolean"
+        },
+        "privateEndpointSubnetCidr": {
+          "title": "Privateendpointsubnetcidr",
+          "type": "string"
+        },
+        "serviceCidr": {
+          "title": "Servicecidr",
+          "type": "string"
+        },
+        "systemNodeSubnetCidr": {
+          "title": "Systemnodesubnetcidr",
+          "type": "string"
+        },
+        "userNodeSubnetCidr": {
+          "title": "Usernodesubnetcidr",
+          "type": "string"
+        },
+        "vnetCidr": {
+          "title": "Vnetcidr",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vnetCidr",
+        "apiServerSubnetCidr",
+        "systemNodeSubnetCidr",
+        "userNodeSubnetCidr",
+        "privateEndpointSubnetCidr",
+        "podCidr",
+        "serviceCidr",
+        "dnsServiceIp",
+        "privateCluster"
+      ],
+      "title": "Network",
+      "type": "object"
+    },
+    "Observability": {
+      "additionalProperties": false,
+      "description": "Environment monitoring controls.",
+      "properties": {
+        "actionGroupReceivers": {
+          "items": {
+            "$ref": "#/$defs/ActionGroupReceiver"
+          },
+          "title": "Actiongroupreceivers",
+          "type": "array"
+        },
+        "actionGroupResourceIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Actiongroupresourceids",
+          "type": "array"
+        },
+        "containerInsights": {
+          "default": true,
+          "title": "Containerinsights",
+          "type": "boolean"
+        },
+        "logRetentionDays": {
+          "default": 30,
+          "maximum": 730,
+          "minimum": 30,
+          "title": "Logretentiondays",
+          "type": "integer"
+        },
+        "managedGrafana": {
+          "default": false,
+          "title": "Managedgrafana",
+          "type": "boolean"
+        },
+        "managedPrometheus": {
+          "default": false,
+          "title": "Managedprometheus",
+          "type": "boolean"
+        }
+      },
+      "title": "Observability",
+      "type": "object"
+    },
+    "TerraformState": {
+      "additionalProperties": false,
+      "description": "Terraform backend names; authentication always comes from Microsoft Entra ID.",
+      "properties": {
+        "stateContainer": {
+          "maxLength": 63,
+          "minLength": 3,
+          "pattern": "^[a-z0-9-]+$",
+          "title": "Statecontainer",
+          "type": "string"
+        },
+        "stateResourceGroup": {
+          "title": "Stateresourcegroup",
+          "type": "string"
+        },
+        "stateStorageAccount": {
+          "title": "Statestorageaccount",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stateResourceGroup",
+        "stateStorageAccount",
+        "stateContainer"
+      ],
+      "title": "TerraformState",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Versioned root configuration document.",
+  "properties": {
+    "apiVersion": {
+      "const": "aiks.io/v1alpha1",
+      "title": "Apiversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "AksAutomaticEnvironment",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/EnvironmentSpec"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "EnvironmentConfig",
+  "type": "object"
+}
