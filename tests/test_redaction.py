@@ -12,6 +12,7 @@ def test_recursive_redaction() -> None:
                 "storageKey": "storage-value",
                 "SharedAccessKey": "shared-value",
                 "client-key-data": "kube-value",
+                "clientCertificateData": "certificate-value",
             }
         ],
     }
@@ -26,6 +27,7 @@ def test_recursive_redaction() -> None:
                 "storageKey": REDACTED,
                 "SharedAccessKey": REDACTED,
                 "client-key-data": REDACTED,
+                "clientCertificateData": REDACTED,
             }
         ],
     }
