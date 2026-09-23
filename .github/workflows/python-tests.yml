@@ -1,4 +1,4 @@
-name: Python tests
+name: Python quality
 
 on:
   pull_request:
@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  pytest:
-    name: Pytest
+  quality:
+    name: Python quality gates
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -32,3 +32,29 @@ jobs:
 
       - name: Run tests
         run: python -m pytest
+
+      - name: Run Ruff lint
+        run: ruff check src tests
+
+      - name: Check Ruff formatting
+        run: ruff format --check src tests
+
+      - name: Run strict type checks
+        run: mypy src
+
+      - name: Run Bandit security checks
+        run: bandit -q -r src
+
+      - name: Audit dependencies
+        run: pip-audit
+
+      - name: Check generated JSON Schema
+        shell: bash
+        run: |
+          schema_output="$(mktemp)"
+          aiks config schema --output "$schema_output"
+          diff --unified infrastructure/aks-automatic/config/schema.json "$schema_output"
+
+      - name: Check zsh completion generation
+        shell: bash
+        run: _AIKS_COMPLETE=zsh_source aiks | grep -q '#compdef aiks'
