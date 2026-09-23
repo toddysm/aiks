@@ -66,3 +66,14 @@ def test_filter_redacts_exception_traceback() -> None:
     assert "traceback-secret" not in emitted
     assert "ClientSecret=<redacted>" in emitted
     assert "ValueError" in emitted
+
+
+def test_filter_recursively_redacts_mapping_arguments() -> None:
+    stream = StringIO()
+    logger = configure_logging(stream=stream)
+
+    logger.info("outputs=%s", {"result": {"sensitive": True, "value": "mapping-secret"}})
+
+    emitted = stream.getvalue()
+    assert "mapping-secret" not in emitted
+    assert "<redacted>" in emitted

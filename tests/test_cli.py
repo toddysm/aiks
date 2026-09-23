@@ -137,7 +137,8 @@ def test_invalid_configuration_redacts_click_error(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "abc.def" not in result.output
-    assert "<redacted>" in result.output
+    assert "spec.naming.prefix" in result.output
+    assert "prefix must be 3-24 lowercase letters" in result.output
 
 
 def test_secret_shaped_extra_field_never_reaches_click_error(tmp_path: Path) -> None:
@@ -153,3 +154,18 @@ def test_secret_shaped_extra_field_never_reaches_click_error(tmp_path: Path) -> 
     assert result.exit_code == 1
     assert "arbitrary-secret-value" not in result.output
     assert "secret-shaped configuration field is prohibited: spec.apiKey" in result.output
+
+
+def test_validation_error_omits_raw_input_value(tmp_path: Path) -> None:
+    raw = yaml.safe_load(DEV.read_text())
+    raw["spec"]["unrecognizedField"] = "private-key-value"
+    path = tmp_path / "invalid.yaml"
+    path.write_text(yaml.safe_dump(raw))
+
+    result = CliRunner().invoke(
+        cli, ["infra", "validate", "--config", str(path), "--engine", "bicep"]
+    )
+
+    assert result.exit_code == 1
+    assert "private-key-value" not in result.output
+    assert "spec.unrecognizedField" in result.output

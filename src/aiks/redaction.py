@@ -9,7 +9,7 @@ from typing import Any
 REDACTED = "<redacted>"
 _SENSITIVE_KEY = re.compile(
     r"(?:password|secret|token|authorization|api.?key|access.?key|client.?key.?data|"
-    r"client.?certificate.?data|"
+    r"client.?certificate.?data|private.?key|credential|"
     r"connection.?string|account.?key|storage.?key|shared.?access.?key|sas|kubeconfig)",
     re.IGNORECASE,
 )
@@ -19,9 +19,9 @@ _VALUE_PATTERNS = (
     re.compile(r"(?i)([?&](?:sig|token|client_secret)=)[^&\s]+"),
     re.compile(
         r"(?i)((?:[\"']?)(?:password|client[_-]?secret|secret|authorization|"
-        r"api[_-]?key|access[_-]?key|connection[_-]?string|account[_-]?key|"
+        r"api[_-]?key|access[_-]?key|private[_-]?key|connection[_-]?string|"
         r"storage[_-]?key|shared[_-]?access[_-]?(?:key|signature)|"
-        r"client-(?:key|certificate)-data|token)"
+        r"sas[_-]?token|client[_-]?(?:key|certificate)[_-]?data|token)"
         r"(?:[\"']?)\s*[:=]\s*)"
         r"(?:\"[^\"]*\"|'[^']*'|[^\s;,}\]]+)"
     ),

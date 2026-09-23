@@ -50,8 +50,10 @@ def test_text_redaction() -> None:
 def test_text_redaction_covers_credential_and_sensitive_output_formats() -> None:
     value = """Password=password-value
 ClientSecret=client-value
+SasToken=sas-value
 connectionString=connection-value
 client-key-data: kube-value
+clientCertificateData=certificate-value
 ?client_secret=query-value
 {"sensitive": true, "value": "terraform-value"}
 """
@@ -61,8 +63,10 @@ client-key-data: kube-value
     for secret in (
         "password-value",
         "client-value",
+        "sas-value",
         "connection-value",
         "kube-value",
+        "certificate-value",
         "query-value",
         "terraform-value",
     ):

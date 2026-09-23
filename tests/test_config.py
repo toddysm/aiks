@@ -46,6 +46,7 @@ def test_rejects_overlapping_subnets(tmp_path: Path) -> None:
         "storageKey",
         "client-key-data",
         "client-certificate-data",
+        "privateKey",
     ],
 )
 def test_rejects_secret_shaped_field(tmp_path: Path, key: str) -> None:

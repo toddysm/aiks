@@ -30,10 +30,22 @@ ENGINE_OPTION = click.option("--engine", required=True, type=ENGINE)
 TARGET_OPTION = click.option("--target", required=True, type=TARGET)
 
 
+def _validation_message(error: ValidationError) -> str:
+    lines = []
+    for detail in error.errors(include_url=False, include_context=False, include_input=False):
+        location = ".".join(str(part) for part in detail["loc"])
+        lines.append(f"{location}: {detail['msg']}")
+    return "invalid configuration:\n" + "\n".join(lines)
+
+
 def _load(path: Path) -> EnvironmentConfig:
     try:
         return load_environment_config(path)
-    except (ValueError, ValidationError) as error:
+    except ValidationError as error:
+        message = redact_text(_validation_message(error))
+        LOGGER.error("configuration load failed: %s", message)
+        raise click.ClickException(message) from error
+    except ValueError as error:
         message = redact_text(str(error))
         LOGGER.error("configuration load failed: %s", message)
         raise click.ClickException(message) from error

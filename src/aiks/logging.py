@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import traceback
+from collections.abc import Mapping
 from typing import TextIO
 
 from aiks.redaction import redact, redact_text
@@ -16,6 +17,10 @@ class RedactingFilter(logging.Filter):
     """Redact message arguments and structured context before handler emission."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, Mapping):
+            record.args = redact(record.args)
+        elif isinstance(record.args, tuple):
+            record.args = tuple(redact(argument) for argument in record.args)
         record.msg = redact_text(record.getMessage())
         record.args = ()
         if record.exc_info:
