@@ -1,0 +1,41 @@
+apiVersion: aiks.io/v1alpha1
+kind: AksAutomaticEnvironment
+metadata:
+  name: dev
+spec:
+  environment: dev
+  location: westus3
+  naming:
+    prefix: aiks-dev
+  identity:
+    adminGroupObjectId: 11111111-1111-4111-8111-111111111111
+  network:
+    vnetCidr: 10.20.0.0/16
+    apiServerSubnetCidr: 10.20.0.0/28
+    systemNodeSubnetCidr: 10.20.0.64/26
+    userNodeSubnetCidr: 10.20.1.0/24
+    privateEndpointSubnetCidr: 10.20.2.0/27
+    podCidr: 10.244.0.0/16
+    serviceCidr: 10.0.0.0/16
+    dnsServiceIp: 10.0.0.10
+    privateCluster: false
+    authorizedIpRanges:
+      - 203.0.113.10/32
+    paasAllowedIpRanges:
+      - 203.0.113.10/32
+  observability:
+    containerInsights: true
+    managedPrometheus: false
+    managedGrafana: false
+    logRetentionDays: 30
+    actionGroupResourceIds: []
+    actionGroupReceivers: []
+  terraform:
+    stateResourceGroup: aiks-tfstate-dev
+    stateStorageAccount: staiksdev0001
+    stateContainer: tfstate
+  local:
+    kindClusterName: aiks-readiness
+  tags:
+    application: aiks
+    environment: dev
