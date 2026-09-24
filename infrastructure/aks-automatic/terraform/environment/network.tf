@@ -12,7 +12,7 @@ resource "azurerm_subnet" "api" {
   virtual_network_name = azurerm_virtual_network.environment.name
   address_prefixes     = [var.config.network.apiServerSubnetCidr]
   delegation {
-    name = "aks-api"
+    name = "aks-delegation"
     service_delegation {
       name    = "Microsoft.ContainerService/managedClusters"
       actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
@@ -70,7 +70,7 @@ resource "azurerm_private_dns_zone" "api" {
 
 resource "azurerm_private_dns_zone_virtual_network_link" "api" {
   count                = var.config.network.privateCluster ? 1 : 0
-  name                 = "api-${local.name}"
+  name                 = "vnet-${local.name}"
   private_dns_zone_id  = azurerm_private_dns_zone.api[0].id
   virtual_network_id   = azurerm_virtual_network.environment.id
   registration_enabled = false

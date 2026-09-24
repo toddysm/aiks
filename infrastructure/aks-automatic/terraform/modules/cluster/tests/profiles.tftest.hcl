@@ -71,3 +71,20 @@ run "private_production" {
     error_message = "Production endpoints must be private."
   }
 }
+
+run "foundation_dev" {
+  command = plan
+  variables {
+    config           = yamldecode(file("../../../config/dev.example.yaml")).spec
+    log_analytics_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test/providers/Microsoft.OperationalInsights/workspaces/logs"
+  }
+}
+
+run "foundation_production" {
+  command = plan
+  variables {
+    config              = yamldecode(file("../../../config/production.example.yaml")).spec
+    log_analytics_id    = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test/providers/Microsoft.OperationalInsights/workspaces/logs"
+    private_dns_zone_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test/providers/Microsoft.Network/privateDnsZones/private.westus3.azmk8s.io"
+  }
+}

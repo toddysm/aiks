@@ -36,6 +36,7 @@ def owner(config: EnvironmentConfig) -> str:
 
 
 def environment_group(config: EnvironmentConfig, subscription: str) -> str:
+    """Return the pre-parity SHA-256 group name for legacy recovery tooling."""
     seed = f"{UUID(subscription)}/{config.spec.naming.prefix}/{config.spec.environment}"
     suffix = hashlib.sha256(seed.encode()).hexdigest()[:8]
     return f"rg-{owner(config)}-{suffix}"

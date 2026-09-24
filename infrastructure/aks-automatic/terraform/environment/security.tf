@@ -78,7 +78,7 @@ resource "azurerm_private_dns_zone" "service" {
 
 resource "azurerm_private_dns_zone_virtual_network_link" "service" {
   for_each             = local.private_services
-  name                 = "${each.key}-${local.name}"
+  name                 = "pe-${each.key == "registry" ? "acr" : each.key}-${local.name}"
   private_dns_zone_id  = azurerm_private_dns_zone.service[each.key].id
   virtual_network_id   = azurerm_virtual_network.environment.id
   registration_enabled = false
@@ -87,13 +87,13 @@ resource "azurerm_private_dns_zone_virtual_network_link" "service" {
 
 resource "azurerm_private_endpoint" "service" {
   for_each            = local.private_services
-  name                = "pe-${each.key}-${local.name}"
+  name                = "pe-${each.key == "registry" ? "acr" : each.key}-${local.name}"
   resource_group_name = azurerm_resource_group.environment.name
   location            = var.config.location
   subnet_id           = azurerm_subnet.private_endpoint.id
   tags                = local.tags
   private_service_connection {
-    name                           = each.key
+    name                           = "pe-${each.key == "registry" ? "acr" : each.key}-${local.name}"
     is_manual_connection           = false
     private_connection_resource_id = each.value.id
     subresource_names              = [each.value.group]

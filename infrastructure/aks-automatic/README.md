@@ -1,5 +1,8 @@
 # AKS Automatic Foundation
 
+Cross-engine resource, security, and automation checks are documented in the
+[parity and static validation guide](parity/README.md).
+
 This directory contains the configuration contract and, as later work items land, the Bicep,
 Terraform, readiness application, and Helm implementations for the accepted
 [AKS Automatic foundation design](../../docs/architecture/infrastructure/aks-automatic-foundation.md).

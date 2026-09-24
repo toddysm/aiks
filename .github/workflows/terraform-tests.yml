@@ -16,6 +16,7 @@ jobs:
   terraform:
     name: Terraform offline gates
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -25,6 +26,15 @@ jobs:
 
       - name: Install Python package
         run: python -m pip install -e '.[dev]'
+
+      - name: Install pinned Bicep compiler for cross-engine parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 https://github.com/Azure/bicep/releases/download/v0.46.1/bicep-linux-x64 -o "$RUNNER_TEMP/bicep"
+          printf '%s  %s\n' 3e011d629ea4311b7a7dd8f0040ab2b1a072ea4ff5d02cb75e0e55a9a6703fb9 "$RUNNER_TEMP/bicep" | sha256sum --check --status
+          chmod +x "$RUNNER_TEMP/bicep"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -63,6 +73,13 @@ jobs:
         env:
           AIKS_REQUIRE_TERRAFORM: "1"
         run: python -m pytest tests/test_terraform.py -k pinned_provider_schema --no-cov
+
+      - name: Require cross-engine inventory and security parity
+        env:
+          AIKS_REQUIRE_PARITY: "1"
+          AIKS_REQUIRE_BICEP: "1"
+          AIKS_REQUIRE_TERRAFORM: "1"
+        run: python -m pytest tests/test_parity.py tests/test_bicep.py --no-cov
 
       - name: Scan Terraform configuration
         run: >-

@@ -29,7 +29,7 @@ resource grafana 'Microsoft.Dashboard/grafana@2024-10-01' = if (observability.ma
   identity: { type: 'SystemAssigned' }
   sku: { name: 'Standard' }
   properties: {
-    grafanaMajorVersion: '11'
+    grafanaMajorVersion: '12'
     apiKey: 'Disabled'
     deterministicOutboundIP: 'Enabled'
     zoneRedundancy: 'Enabled'
