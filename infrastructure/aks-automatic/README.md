@@ -79,8 +79,10 @@ to type the selected environment name. Production additionally requires the expl
 `--allow-production-destroy` flag before prompting. Environment destruction never removes the
 Terraform backend; state cleanup remains a separate guarded command.
 
-The commands currently stop at tracked placeholders. Issues #8 and #11 implement the state and
-environment deletion behavior while retaining these safeguards.
+State bootstrap/status/destroy are implemented under #8 and documented in the
+[Terraform operator guide](terraform/README.md). They require an authenticated Azure session
+and perform real operations when invoked. Environment deployment and deletion remain
+placeholders owned by #11. Do not infer live validation from passing offline tests.
 
 ## Issue #6 validation
 

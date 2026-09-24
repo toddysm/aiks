@@ -36,6 +36,18 @@ packages = ["src/aiks"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "infrastructure/aks-automatic/bicep" = "aiks/infrastructure/aks-automatic/bicep"
+"infrastructure/aks-automatic/terraform/environment/main.tf" = "aiks/infrastructure/aks-automatic/terraform/environment/main.tf"
+"infrastructure/aks-automatic/terraform/environment/versions.tf" = "aiks/infrastructure/aks-automatic/terraform/environment/versions.tf"
+"infrastructure/aks-automatic/terraform/environment/backend.tf" = "aiks/infrastructure/aks-automatic/terraform/environment/backend.tf"
+"infrastructure/aks-automatic/terraform/environment/network.tf" = "aiks/infrastructure/aks-automatic/terraform/environment/network.tf"
+"infrastructure/aks-automatic/terraform/environment/security.tf" = "aiks/infrastructure/aks-automatic/terraform/environment/security.tf"
+"infrastructure/aks-automatic/terraform/environment/monitoring.tf" = "aiks/infrastructure/aks-automatic/terraform/environment/monitoring.tf"
+"infrastructure/aks-automatic/terraform/environment/alerts.tf" = "aiks/infrastructure/aks-automatic/terraform/environment/alerts.tf"
+"infrastructure/aks-automatic/terraform/environment/outputs.tf" = "aiks/infrastructure/aks-automatic/terraform/environment/outputs.tf"
+"infrastructure/aks-automatic/terraform/environment/.terraform.lock.hcl" = "aiks/infrastructure/aks-automatic/terraform/environment/.terraform.lock.hcl"
+"infrastructure/aks-automatic/terraform/bootstrap/main.tf" = "aiks/infrastructure/aks-automatic/terraform/bootstrap/main.tf"
+"infrastructure/aks-automatic/terraform/bootstrap/.terraform.lock.hcl" = "aiks/infrastructure/aks-automatic/terraform/bootstrap/.terraform.lock.hcl"
+"infrastructure/aks-automatic/terraform/modules/cluster/main.tf" = "aiks/infrastructure/aks-automatic/terraform/modules/cluster/main.tf"
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers --strict-config --cov=aiks --cov-report=term-missing --cov-fail-under=90"

@@ -1,0 +1,68 @@
+name: Terraform quality
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: terraform-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    name: Terraform offline gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python package
+        run: python -m pip install -e .
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Install pinned lint and security tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 3 https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip -o tflint_linux_amd64.zip
+          curl -fsSL --retry 3 https://github.com/terraform-linters/tflint/releases/download/v0.64.0/checksums.txt -o tflint-checksums.txt
+          grep ' tflint_linux_amd64.zip$' tflint-checksums.txt | sha256sum --check --status
+          unzip -q tflint_linux_amd64.zip
+          curl -fsSL --retry 3 https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz -o trivy_0.74.0_Linux-64bit.tar.gz
+          curl -fsSL --retry 3 https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_checksums.txt -o trivy-checksums.txt
+          grep ' trivy_0.74.0_Linux-64bit.tar.gz$' trivy-checksums.txt | sha256sum --check --status
+          tar -xzf trivy_0.74.0_Linux-64bit.tar.gz trivy
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Format, locked initialization, validation, lint, and mock tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for root in environment bootstrap modules/cluster; do
+            directory="infrastructure/aks-automatic/terraform/$root"
+            terraform -chdir="$directory" fmt -check -recursive
+            terraform -chdir="$directory" init -backend=false -input=false -lockfile=readonly
+            terraform -chdir="$directory" validate
+            tflint --chdir="$directory"
+            terraform -chdir="$directory" test
+          done
+
+      - name: Scan Terraform configuration
+        run: >-
+          trivy config --skip-check-update --disable-telemetry --skip-version-check
+          --timeout 2m --severity HIGH,CRITICAL --exit-code 1
+          --skip-dirs '**/.terraform'
+          --ignorefile infrastructure/aks-automatic/terraform/.trivyignore.yaml
+          infrastructure/aks-automatic/terraform
