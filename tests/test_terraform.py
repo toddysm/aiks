@@ -96,6 +96,39 @@ def test_refuse_unsafe_blob_inventory(blobs: object) -> None:
         terraform.check_blobs(blobs)
 
 
+@pytest.mark.parametrize("flat", [False, True])
+def test_normalize_lease_shapes(flat: bool) -> None:
+    for lease_status in ("unlocked", "locked"):
+        metadata = {"status": lease_status, "state": "available", "duration": None}
+        properties = (
+            {"lease" + name.capitalize(): value for name, value in metadata.items()}
+            if flat
+            else {"lease": metadata}
+        )
+        blob = {"name": "bootstrap.tfstate", "properties": properties}
+        assert terraform.blob_lease(blob) == {"status": lease_status, "state": "available"}
+        if lease_status == "locked":
+            with pytest.raises(ValueError, match="active state lease"):
+                terraform.check_blobs([blob])
+        else:
+            terraform.check_blobs([blob])
+
+
+@pytest.mark.parametrize(
+    "properties",
+    [
+        None,
+        "invalid",
+        {"lease": "invalid"},
+        {"leaseStatus": []},
+        {"leaseStatus": "locked", "lease": {"status": "unlocked"}},
+    ],
+)
+def test_reject_ambiguous_lease_metadata(properties: object) -> None:
+    with pytest.raises(ValueError):
+        terraform.blob_lease({"properties": properties})
+
+
 def test_accept_unused_backend() -> None:
     terraform.check_blobs([])
     terraform.check_blobs(

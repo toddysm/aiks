@@ -116,7 +116,8 @@ def recovery_state(service: StateBackend) -> dict[str, Any]:
                     "azurerm_role_assignment",
                     "operator",
                     {
-                        "id": container + "/providers/Microsoft.Authorization/roleAssignments/test",
+                        "id": container
+                        + f"/providers/Microsoft.Authorization/roleAssignments/{SUBSCRIPTION}",
                         "scope": container,
                     },
                 ),
@@ -185,7 +186,8 @@ class Cloud:
                         {
                             "name": "bootstrap.tfstate",
                             "properties": {
-                                "lease": {"status": "locked" if self.locked else "unlocked"}
+                                "leaseStatus": "locked" if self.locked else "unlocked",
+                                "leaseState": "leased" if self.locked else "available",
                             },
                         }
                     ]
@@ -246,6 +248,7 @@ def test_bootstrap_migration_and_repeat(
     assert service.bootstrap()["phase"] == "remote-state-verified"
     expected_keys = ["bootstrap.tfstate"] + ([cloud.environment_key] if deployed else [])
     assert service.status()["stateKeys"] == expected_keys
+    assert service.status()["leases"][0]["status"] == "unlocked"
     assert any("-migrate-state" in call for call in cloud.calls)
     assert any("-reconfigure" in call for call in cloud.calls)
     assert (service.directory / "inputs.tfvars.json").stat().st_mode & 0o777 == 0o600
@@ -294,6 +297,44 @@ def test_failed_cleanup_preserves_recovery_and_releases_lease(
         service.destroy(confirmed_environment="dev")
     assert not cloud.locked
     assert len(list(service.directory.glob("recovery-*.tfstate"))) == 1
+
+
+@pytest.mark.parametrize("malformation", ["foreign-group", "foreign-role", "corrupt-json", "empty"])
+def test_invalid_local_state_blocks_all_terraform_commands(
+    service: StateBackend, cloud: Cloud, malformation: str
+) -> None:
+    document = cloud.document
+    if malformation == "foreign-group":
+        document["resources"][0]["instances"][0]["attributes"]["id"] = "wrong-group"
+    elif malformation == "foreign-role":
+        document["resources"][3]["instances"][0]["attributes"]["id"] = "/wrong/role"
+    elif malformation == "empty":
+        document["resources"] = []
+    with service.session():
+        (service.directory / "terraform.tfstate").write_text(
+            "not-json" if malformation == "corrupt-json" else json.dumps(document)
+        )
+    with pytest.raises(ValueError):
+        service.bootstrap()
+    assert not any(call[0] == "terraform" for call in cloud.calls)
+
+
+def test_valid_local_state_resumes_before_migration(service: StateBackend, cloud: Cloud) -> None:
+    cloud.exists = True
+    with service.session():
+        (service.directory / "terraform.tfstate").write_text(json.dumps(cloud.document))
+    assert service.bootstrap()["phase"] == "remote-state-verified"
+
+
+def test_empty_migrated_local_state_requires_remote_state(
+    service: StateBackend, cloud: Cloud
+) -> None:
+    cloud.exists = cloud.remote = True
+    with service.session():
+        (service.directory / "terraform.tfstate").write_text(
+            json.dumps(dict(cloud.document, resources=[]))
+        )
+    assert service.bootstrap()["phase"] == "remote-state-verified"
 
 
 def test_migration_missing_remote_refuses_overwrite(service: StateBackend, cloud: Cloud) -> None:

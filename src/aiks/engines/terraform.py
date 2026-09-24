@@ -114,6 +114,30 @@ def asset_root() -> Iterator[Path]:
         yield source
 
 
+def blob_lease(blob: Any) -> dict[str, str]:
+    """Normalize supported CLI lease shapes without trusting ambiguous metadata."""
+    properties = blob.get("properties") if isinstance(blob, dict) else None
+    if not isinstance(properties, dict):
+        raise ValueError("unable to verify state lease metadata")
+    nested = properties.get("lease") or {}
+    if not isinstance(nested, dict):
+        raise ValueError("unable to verify state lease metadata")
+    lease: dict[str, str] = {}
+    for field in ("status", "state", "duration"):
+        flat = properties.get("lease" + field.capitalize())
+        value = nested.get(field)
+        if flat is not None and value is not None and flat != value:
+            raise ValueError("conflicting state lease metadata")
+        value = flat if flat is not None else value
+        if value is not None:
+            if not isinstance(value, str):
+                raise ValueError("invalid state lease metadata")
+            lease[field] = value
+    if lease.get("status") not in {"unlocked", "locked"}:
+        raise ValueError("unable to verify state lease status")
+    return lease
+
+
 def check_blobs(
     blobs: Any, *, allow_bootstrap_lease: bool = False, environment_key: str | None = None
 ) -> None:
@@ -123,9 +147,7 @@ def check_blobs(
         allowed_keys = {BOOTSTRAP_KEY, environment_key} if environment_key else {BOOTSTRAP_KEY}
         if not isinstance(blob, dict) or blob.get("name") not in allowed_keys:
             raise ValueError("backend contains a non-bootstrap state key or unrelated blob")
-        lease = blob.get("properties", {}).get("lease", {})
-        if lease.get("status") not in {"unlocked", "locked"}:
-            raise ValueError("unable to verify state lease status")
+        lease = blob_lease(blob)
         if lease["status"] != "unlocked" and not (
             allow_bootstrap_lease and blob["name"] == BOOTSTRAP_KEY
         ):
@@ -134,7 +156,9 @@ def check_blobs(
         raise ValueError("environment state exists without bootstrap state; recover explicitly")
 
 
-def check_recovery(document: Any, config: EnvironmentConfig, subscription: str) -> None:
+def check_recovery(
+    document: Any, config: EnvironmentConfig, subscription: str, *, allow_empty: bool = False
+) -> None:
     if not isinstance(document, dict) or document.get("version") != 4:
         raise ValueError("unsupported bootstrap recovery state")
     if (
@@ -161,6 +185,8 @@ def check_recovery(document: Any, config: EnvironmentConfig, subscription: str) 
     resources = document.get("resources")
     if not isinstance(resources, list):
         raise ValueError("bootstrap recovery state lacks resources")
+    if allow_empty and not resources:
+        return
     seen: set[str] = set()
     for resource in resources:
         if not isinstance(resource, dict) or resource.get("mode") not in ("data", "managed"):
@@ -192,6 +218,13 @@ def check_recovery(document: Any, config: EnvironmentConfig, subscription: str) 
             or attributes["scope"].lower() != expected["azurerm_storage_container"].lower()
         ):
             raise ValueError("bootstrap state role scope does not match the container")
+        if kind == "azurerm_role_assignment":
+            role_scope, separator, role_id = resource_id.lower().rpartition(
+                "/providers/microsoft.authorization/roleassignments/"
+            )
+            if not separator or role_scope != expected["azurerm_storage_container"].lower():
+                raise ValueError("bootstrap state role ID does not match the container")
+            UUID(role_id)
         seen.add(kind)
     if seen != {*expected, "azurerm_role_assignment"}:
         raise ValueError("bootstrap state is incomplete")

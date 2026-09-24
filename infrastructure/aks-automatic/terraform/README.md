@@ -98,11 +98,19 @@ even when shared-key authentication is disabled. No state contents are logged.
 
 A mismatch between local and remote bootstrap state stops migration. Preserve both
 copies, compare lineage/serial/resource identities privately, and resolve the correct
-source before retrying. An interrupted first bootstrap can resume from its retained
-local state; if the remote backend declaration exists but the remote state is absent,
+source before retrying. Existing local state is validated before Terraform init,
+plan, or apply, including the container-scoped role-assignment ID. An interrupted
+first bootstrap can resume from complete validated local state; corrupt, foreign,
+or incomplete state requires explicit recovery. A validated empty migration remnant
+is accepted only when verified remote bootstrap state exists. If the remote backend
+declaration exists but the remote state is absent,
 the command stops for explicit recovery rather than overwriting data. An active remote
 lease must be investigated, not automatically broken. On interrupted cleanup, inspect
 the group and recovery copy before manually releasing an orphaned bootstrap lease.
+
+Lease checks and status output normalize both flat `properties.leaseStatus` fields
+and nested `properties.lease` metadata. Conflicting, malformed, or unknown lease
+status is rejected rather than interpreted as unlocked.
 
 Cleanup acquires the bootstrap lease, downloads and validates the state, deletes the
 state group outside Terraform, verifies absence, and writes `cleanup-receipt.json`.

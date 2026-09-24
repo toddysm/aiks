@@ -19,6 +19,7 @@ from aiks.engines.terraform import (
     BOOTSTRAP_KEY,
     asset_root,
     backend,
+    blob_lease,
     bootstrap_variables,
     check_blobs,
     check_recovery,
@@ -218,7 +219,7 @@ class StateBackend:
             "environment": self.config.spec.environment,
             "backend": self.config.spec.terraform.state_storage_account,
             "stateKeys": [blob["name"] for blob in blobs],
-            "leases": [blob.get("properties", {}).get("lease", {}) for blob in blobs],
+            "leases": [blob_lease(blob) for blob in blobs],
         }
 
     def _check_unused_services(self) -> None:
@@ -266,17 +267,25 @@ class StateBackend:
                 raise ValueError("unable to determine backend existence")
             blobs = self.inventory() if exists else []
             check_blobs(blobs, environment_key=backend(self.config)["key"])
+            local_path = self.directory / "terraform.tfstate"
+            local_state = None
+            if local_path.exists():
+                if local_path.stat().st_size > 32 * 1024 * 1024:
+                    raise ValueError("local bootstrap state is unexpectedly large")
+                local_state = json.loads(local_path.read_text(encoding="utf-8"))
+                check_recovery(local_state, self.config, self.subscription, allow_empty=bool(blobs))
             if blobs:
                 recovery = self.directory / f"resume-{uuid4()}.tfstate"
                 remote_state = self._download(recovery)
-                local_path = self.directory / "terraform.tfstate"
-                if local_path.exists():
-                    local_state = json.loads(local_path.read_text())
-                    if local_state.get("resources") and local_state != remote_state:
-                        raise ValueError(
-                            "local and remote bootstrap state differ; "
-                            "recover explicitly before retrying"
-                        )
+                if (
+                    local_state is not None
+                    and local_state["resources"]
+                    and local_state != remote_state
+                ):
+                    raise ValueError(
+                        "local and remote bootstrap state differ; "
+                        "recover explicitly before retrying"
+                    )
                 write_json(backend_file, remote_config)
                 self._terraform(
                     "init", "-reconfigure", "-input=false", "-lockfile=readonly", "-no-color"
