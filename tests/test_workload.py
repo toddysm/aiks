@@ -106,6 +106,14 @@ def test_chart_target_security(environment: str) -> None:
                 "identity.vaultUri=https://example.vault.azure.net",
             ]
         result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
+        if environment != "kind":
+            rejected = subprocess.run(
+                [*command, "--set", "identity.vaultUri=https://attacker.example.invalid"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert rejected.returncode != 0 and "vaultUri" in rejected.stderr
     docs = [entry for entry in yaml.safe_load_all(result.stdout) if entry]
     deployment = next(entry for entry in docs if entry["kind"] == "Deployment")
     pod = deployment["spec"]["template"]["spec"]

@@ -19,6 +19,9 @@ The container uses a digest-pinned Python 3.12 Alpine image, user/group 10001,
 read-only root filesystem, dropped capabilities, and a runtime-default seccomp
 profile. It needs no embedded credentials. A mounted ConfigMap supplies service
 settings; only the projected Azure workload token is used for AKS identity checks.
+Vault endpoints must use the supported `vault.azure.net`, `vault.usgovcloudapi.net`,
+or `vault.azure.cn` suffix with a valid vault name; arbitrary hosts, credentials,
+ports, paths, and query strings are rejected before client construction.
 The build context excludes local state, kubeconfig, provider caches, and local
 environment files. Image building requires the source checkout; installed wheels
 include the chart and can deploy an existing image.

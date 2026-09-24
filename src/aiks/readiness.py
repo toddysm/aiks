@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from time import perf_counter
@@ -39,6 +40,12 @@ class ReadinessSettings(StrictModel):
             if (
                 parsed.scheme != "https"
                 or not parsed.hostname
+                or not re.fullmatch(
+                    r"[a-z][a-z0-9-]{1,22}[a-z0-9]\.vault\."
+                    r"(?:azure\.net|usgovcloudapi\.net|azure\.cn)",
+                    parsed.hostname,
+                )
+                or parsed.port is not None
                 or parsed.username
                 or parsed.password
                 or parsed.query
@@ -46,7 +53,7 @@ class ReadinessSettings(StrictModel):
                 or parsed.path not in {"", "/"}
             ):
                 raise ValueError(
-                    "AKS identity verification requires a credential-free HTTPS vault URI"
+                    "AKS identity verification requires a supported Azure Key Vault HTTPS URI"
                 )
         if self.target == "kind" and self.vault_uri:
             raise ValueError("kind must not configure Azure identity verification")

@@ -45,7 +45,7 @@
     {"if": {"properties": {"target": {"const": "aks"}}}, "then": {"properties": {
       "image": {"properties": {"digest": {"pattern": "^sha256:[a-f0-9]{64}$"}}},
       "gateway": {"properties": {"className": {"const": "approuting-istio"}}},
-      "identity": {"properties": {"clientId": {"pattern": "^[a-fA-F0-9-]{36}$"}, "tenantId": {"pattern": "^[a-fA-F0-9-]{36}$"}, "vaultUri": {"pattern": "^https://[a-zA-Z0-9.-]+/?$"}}}
+      "identity": {"properties": {"clientId": {"pattern": "^[a-fA-F0-9-]{36}$"}, "tenantId": {"pattern": "^[a-fA-F0-9-]{36}$"}, "vaultUri": {"pattern": "^https://[a-zA-Z][a-zA-Z0-9-]{1,22}[a-zA-Z0-9]\\.vault\\.(azure\\.net|usgovcloudapi\\.net|azure\\.cn)/?$"}}}
     }}},
     {"if": {"properties": {"target": {"const": "kind"}}}, "then": {"properties": {"monitoring": {"properties": {"enabled": {"const": false}}}, "identity": {"properties": {"clientId": {"const": ""}, "tenantId": {"const": ""}, "vaultUri": {"const": ""}}}}}},
     {"if": {"properties": {"target": {"const": "aks"}, "environment": {"const": "production"}}}, "then": {"properties": {"gateway": {"properties": {"internal": {"const": true}}}, "monitoring": {"properties": {"enabled": {"const": true}}}}}}

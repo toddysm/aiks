@@ -49,7 +49,7 @@ def test_failed_readiness_metrics() -> None:
 
 
 def test_identity_success_and_redacted_failure() -> None:
-    config = settings(target="aks", vaultUri="https://vault.example.invalid")
+    config = settings(target="aks", vaultUri="https://vault.vault.azure.net")
     with TestClient(create_app(config, lambda config: "readiness-marker")) as client:
         assert client.get("/identityz").json() == {
             "status": "verified",
@@ -65,7 +65,7 @@ def test_identity_success_and_redacted_failure() -> None:
 
 
 @pytest.mark.parametrize(
-    "overrides", [{"target": "aks"}, {"vaultUri": "https://vault.example.invalid"}]
+    "overrides", [{"target": "aks"}, {"vaultUri": "https://vault.vault.azure.net"}]
 )
 def test_identity_configuration_guard(overrides: dict[str, str]) -> None:
     with pytest.raises(ValidationError):
@@ -110,8 +110,29 @@ def test_sdk_path_uses_workload_identity_and_only_returns_name(
     client = Client()
     monkeypatch.setattr("aiks.readiness.DefaultAzureCredential", credential)
     monkeypatch.setattr("aiks.readiness.KeyClient", lambda *args, **kwargs: nullcontext(client))
-    config = settings(target="aks", vaultUri="https://vault.example.invalid")
+    config = settings(target="aks", vaultUri="https://vault.vault.azure.net")
     assert verify_identity(config) == "readiness-marker"
     client.name = "wrong"
     with pytest.raises(ValueError, match="unexpected marker"):
         verify_identity(config)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "https://attacker.example.invalid",
+        "https://vault.vault.azure.net.attacker.invalid",
+        "https://vault.vault.azure.net:8443",
+        "https://user@example.vault.azure.net",
+        "https://vault.vault.azure.net/path",
+        "https://vault.vault.azure.net?query=1",
+    ],
+)
+def test_identity_rejects_untrusted_vault_endpoints(uri: str) -> None:
+    with pytest.raises(ValidationError):
+        settings(target="aks", vaultUri=uri)
+
+
+@pytest.mark.parametrize("suffix", ["azure.net", "usgovcloudapi.net", "azure.cn"])
+def test_identity_accepts_supported_cloud_hosts(suffix: str) -> None:
+    assert settings(target="aks", vaultUri=f"https://sample.vault.{suffix}/").target == "aks"
