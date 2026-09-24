@@ -9,6 +9,10 @@
 !src/aiks/engines/*.py
 !infrastructure/
 !infrastructure/aks-automatic/
+!infrastructure/aks-automatic/config/
+!infrastructure/aks-automatic/config/platform.json
+!infrastructure/aks-automatic/parity/
+!infrastructure/aks-automatic/parity/contract.json
 !infrastructure/aks-automatic/bicep/
 !infrastructure/aks-automatic/bicep/**
 !infrastructure/aks-automatic/terraform/
