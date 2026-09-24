@@ -76,7 +76,220 @@
     "Grafana Admin": "22926164-76b3-42b3-bc55-97df8dab3e41",
     "Monitoring Reader": "43d0d8ad-25c7-4714-9337-8ba259a9fe05"
   },
+  "moduleBindings": [
+    {"modules": ["foundation"], "parameters": {
+      "location": "[parameters('location')]",
+      "environmentName": "[parameters('environment')]",
+      "adminGroupObjectId": "[parameters('adminGroupObjectId')]",
+      "network": "[parameters('network')]",
+      "observability": "[parameters('observability')]"
+    }},
+    {"modules": ["foundation", "cluster"], "parameters": {
+      "identityId": "[reference(resourceId('Microsoft.Resources/deployments', 'cluster-identity'), '2025-04-01').outputs.identityInfo.value.id]",
+      "adminGroupObjectId": "[parameters('adminGroupObjectId')]",
+      "subnetIds": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.subnetIds.value]",
+      "privateDnsZoneId": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.privateDnsZoneId.value]",
+      "logAnalyticsId": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.monitoringInfo.value.logAnalyticsId]",
+      "network": "[variables('effectiveNetwork')]",
+      "observability": "[variables('effectiveObservability')]"
+    }},
+    {"modules": ["foundation", "network"], "parameters": {
+      "clusterPrincipalId": "[reference(resourceId('Microsoft.Resources/deployments', 'cluster-identity'), '2025-04-01').outputs.identityInfo.value.principalId]"
+    }},
+    {"modules": ["foundation", "bindings"], "parameters": {
+      "registryName": "[reference(resourceId('Microsoft.Resources/deployments', 'registry'), '2025-04-01').outputs.registryInfo.value.name]",
+      "vaultName": "[reference(resourceId('Microsoft.Resources/deployments', 'vault'), '2025-04-01').outputs.vaultInfo.value.name]",
+      "readinessIdentityName": "[reference(resourceId('Microsoft.Resources/deployments', 'readiness-identity'), '2025-04-01').outputs.identityInfo.value.name]",
+      "readinessPrincipalId": "[reference(resourceId('Microsoft.Resources/deployments', 'readiness-identity'), '2025-04-01').outputs.identityInfo.value.principalId]",
+      "kubeletObjectId": "[reference(resourceId('Microsoft.Resources/deployments', 'cluster'), '2025-04-01').outputs.kubeletObjectId.value]",
+      "oidcIssuer": "[reference(resourceId('Microsoft.Resources/deployments', 'cluster'), '2025-04-01').outputs.oidcIssuer.value]"
+    }},
+    {"modules": ["foundation", "monitoring-bindings"], "parameters": {
+      "clusterName": "[reference(resourceId('Microsoft.Resources/deployments', 'cluster'), '2025-04-01').outputs.clusterInfo.value.name]",
+      "monitoringInfo": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.monitoringInfo.value]",
+      "containerRuleId": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.containerRuleId.value]",
+      "prometheusRuleId": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.prometheusRuleId.value]"
+    }},
+    {"modules": ["foundation", "monitoring", "[format('grafana-access-{0}', parameters('name'))]"], "parameters": {
+      "workspaceName": "[format('amw-{0}', parameters('name'))]",
+      "principalId": "[reference(resourceId('Microsoft.Dashboard/grafana', format('grafana-{0}', uniqueString(resourceGroup().id, parameters('name')))), '2024-10-01', 'full').identity.principalId]"
+    }}
+  ],
+  "outputObjects": {
+    "cluster": {"module": "cluster", "output": "clusterInfo"},
+    "registry": {"module": "registry", "output": "registryInfo"},
+    "vault": {"module": "vault", "output": "vaultInfo"},
+    "network.subnetIds": {"module": "network", "output": "subnetIds"},
+    "identities.cluster": {"module": "cluster-identity", "output": "identityInfo"},
+    "identities.readiness": {"module": "readiness-identity", "output": "identityInfo"},
+    "monitoring": {"module": "monitoring", "output": "monitoringInfo"}
+  },
+  "outputReferences": {
+    "readiness.clientId": "[reference(resourceId('Microsoft.Resources/deployments', 'readiness-identity'), '2025-04-01').outputs.identityInfo.value.clientId]",
+    "readiness.vaultUri": "[reference(resourceId('Microsoft.Resources/deployments', 'vault'), '2025-04-01').outputs.vaultInfo.value.uri]",
+    "readiness.namespace": "aiks-readiness",
+    "readiness.serviceAccount": "readiness",
+    "readiness.markerKeyName": "readiness-marker",
+    "readiness.gatewayClassName": "approuting-istio",
+    "readiness.internalGateway": "[variables('production')]",
+    "readiness.managedPrometheus": "[variables('effectiveObservability').managedPrometheus]",
+    "network.vnetId": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.vnetId.value]"
+  },
+  "pairedBindings": [
+    {
+      "address": "azurerm_monitor_data_collection_rule.containers[0]",
+      "bicepModules": ["foundation", "monitoring"],
+      "type": "Microsoft.Insights/dataCollectionRules",
+      "selector": {"name": "[format('ci-{0}', parameters('name'))]"},
+      "fields": {
+        "data_flow.0.streams": {"path": "properties.dataFlows.0.streams"},
+        "data_flow.0.destinations": {"path": "properties.dataFlows.0.destinations"},
+        "data_sources.0.extension.0.extension_name": {"path": "properties.dataSources.extensions.0.extensionName"},
+        "destinations.0.log_analytics.0.workspace_resource_id": {"path": "properties.destinations.logAnalytics.0.workspaceResourceId", "expression": "[resourceId('Microsoft.OperationalInsights/workspaces', format('log-{0}', parameters('name')))]"}
+      }
+    },
+    {
+      "address": "azurerm_monitor_data_collection_rule.prometheus[0]",
+      "bicepModules": ["foundation", "monitoring"],
+      "type": "Microsoft.Insights/dataCollectionRules",
+      "selector": {"name": "[format('prom-{0}', parameters('name'))]"},
+      "fields": {
+        "data_flow.0.streams": {"path": "properties.dataFlows.0.streams"},
+        "data_flow.0.destinations": {"path": "properties.dataFlows.0.destinations"},
+        "data_sources.0.prometheus_forwarder.0.streams": {"path": "properties.dataSources.prometheusForwarder.0.streams"},
+        "destinations.0.monitor_account.0.monitor_account_id": {"path": "properties.destinations.monitoringAccounts.0.accountResourceId", "expression": "[resourceId('Microsoft.Monitor/accounts', format('amw-{0}', parameters('name')))]"},
+        "data_collection_endpoint_id": {"path": "properties.dataCollectionEndpointId", "expression": "[reference(resourceId('Microsoft.Monitor/accounts', format('amw-{0}', parameters('name'))), '2023-04-03').defaultIngestionSettings.dataCollectionEndpointResourceId]"}
+      }
+    },
+    {
+      "address": "module.cluster.azapi_resource.cluster",
+      "bicepModules": ["foundation", "cluster"],
+      "type": "Microsoft.ContainerService/managedClusters",
+      "fields": {
+        "identity.0.type": {"path": "identity.type"},
+        "identity.0.identity_ids": {"path": "identity.userAssignedIdentities", "expression": {"[format('{0}', parameters('identityId'))]": {}}}
+      }
+    },
+    {
+      "address": "azurerm_monitor_data_collection_rule_association.containers[0]",
+      "bicepModules": ["foundation", "monitoring-bindings"],
+      "type": "Microsoft.Insights/dataCollectionRuleAssociations",
+      "selector": {"name": "ContainerInsightsExtension"},
+      "fields": {
+        "target_resource_id": {"path": "scope", "expression": "[resourceId('Microsoft.ContainerService/managedClusters', parameters('clusterName'))]"},
+        "data_collection_rule_id": {"path": "properties.dataCollectionRuleId", "expression": "[parameters('containerRuleId')]"}
+      }
+    },
+    {
+      "address": "azurerm_monitor_data_collection_rule_association.prometheus[0]",
+      "bicepModules": ["foundation", "monitoring-bindings"],
+      "type": "Microsoft.Insights/dataCollectionRuleAssociations",
+      "selector": {"name": "[format('prometheus-{0}', parameters('name'))]"},
+      "fields": {
+        "target_resource_id": {"path": "scope", "expression": "[resourceId('Microsoft.ContainerService/managedClusters', parameters('clusterName'))]"},
+        "data_collection_rule_id": {"path": "properties.dataCollectionRuleId", "expression": "[parameters('prometheusRuleId')]"}
+      }
+    },
+    {
+      "address": "azurerm_monitor_diagnostic_setting.cluster[0]",
+      "bicepModules": ["foundation", "monitoring-bindings"],
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "fields": {
+        "target_resource_id": {"path": "scope", "expression": "[resourceId('Microsoft.ContainerService/managedClusters', parameters('clusterName'))]"},
+        "log_analytics_workspace_id": {"path": "properties.workspaceId", "expression": "[parameters('monitoringInfo').logAnalyticsId]"},
+        "name": {"path": "name"}
+      }
+    },
+    {
+      "address": "azurerm_federated_identity_credential.readiness",
+      "bicepModules": ["foundation", "bindings"],
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials",
+      "fields": {
+        "issuer": {"path": "properties.issuer", "expression": "[parameters('oidcIssuer')]"},
+        "subject": {"path": "properties.subject"},
+        "audience": {"path": "properties.audiences"}
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.vault_reader",
+      "bicepModules": ["foundation", "bindings"],
+      "type": "Microsoft.Authorization/roleAssignments",
+      "selector": {"properties.roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('readerRole'))]"},
+      "fields": {
+        "scope": {"path": "scope", "expression": "[resourceId('Microsoft.KeyVault/vaults', parameters('vaultName'))]"},
+        "principal_id": {"path": "properties.principalId", "expression": "[parameters('readinessPrincipalId')]"},
+        "principal_type": {"path": "properties.principalType"}
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.pull",
+      "bicepModules": ["foundation", "bindings"],
+      "type": "Microsoft.Authorization/roleAssignments",
+      "selector": {"properties.roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('pullRole'))]"},
+      "fields": {
+        "scope": {"path": "scope", "expression": "[resourceId('Microsoft.ContainerRegistry/registries', parameters('registryName'))]"},
+        "principal_id": {"path": "properties.principalId", "expression": "[parameters('kubeletObjectId')]"},
+        "principal_type": {"path": "properties.principalType"}
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.network",
+      "bicepModules": ["foundation", "network"],
+      "type": "Microsoft.Authorization/roleAssignments",
+      "selector": {"properties.roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('networkRole'))]"},
+      "fields": {
+        "scope": {"path": "scope", "expression": "[resourceId('Microsoft.Network/virtualNetworks', parameters('name'))]"},
+        "principal_id": {"path": "properties.principalId", "expression": "[parameters('clusterPrincipalId')]"},
+        "principal_type": {"path": "properties.principalType"}
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.dns[0]",
+      "bicepModules": ["foundation", "network"],
+      "type": "Microsoft.Authorization/roleAssignments",
+      "selector": {"properties.roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('dnsRole'))]"},
+      "fields": {
+        "scope": {"path": "scope", "expression": "[resourceId('Microsoft.Network/privateDnsZones', format('private.{0}.azmk8s.io', parameters('location')))]"},
+        "principal_id": {"path": "properties.principalId", "expression": "[parameters('clusterPrincipalId')]"},
+        "principal_type": {"path": "properties.principalType"}
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.cluster_admin[\"Azure Kubernetes Service Cluster User Role\"]",
+      "bicepModules": ["foundation", "cluster"],
+      "type": "Microsoft.Authorization/roleAssignments",
+      "fields": {
+        "scope": {"path": "scope", "expression": "[resourceId('Microsoft.ContainerService/managedClusters', parameters('name'))]"},
+        "principal_id": {"path": "properties.principalId", "expression": "[parameters('adminGroupObjectId')]"},
+        "principal_type": {"path": "properties.principalType"}
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.grafana_admin[0]",
+      "bicepModules": ["foundation", "monitoring"],
+      "type": "Microsoft.Authorization/roleAssignments",
+      "fields": {
+        "scope": {"path": "scope", "expression": "[resourceId('Microsoft.Dashboard/grafana', format('grafana-{0}', uniqueString(resourceGroup().id, parameters('name'))))]"},
+        "principal_id": {"path": "properties.principalId", "expression": "[parameters('adminGroupObjectId')]"},
+        "principal_type": {"path": "properties.principalType"}
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.grafana_reader[0]",
+      "bicepModules": ["foundation", "monitoring", "[format('grafana-access-{0}', parameters('name'))]"],
+      "type": "Microsoft.Authorization/roleAssignments",
+      "fields": {
+        "scope": {"path": "scope", "expression": "[resourceId('Microsoft.Monitor/accounts', parameters('workspaceName'))]"},
+        "principal_id": {"path": "properties.principalId", "expression": "[parameters('principalId')]"},
+        "principal_type": {"path": "properties.principalType"}
+      }
+    }
+  ],
   "bindings": [
+    {"address": "module.cluster.azapi_resource.cluster", "fields": {
+      "identity.0.type": "UserAssigned",
+      "identity.0.identity_ids": {"resourceList": ["azurerm_user_assigned_identity.identity[\"cluster\"]"], "path": "id"}
+    }},
     {"address": "azurerm_key_vault.readiness", "fields": {
       "rbac_authorization_enabled": true,
       "network_acls.0.default_action": "Deny",

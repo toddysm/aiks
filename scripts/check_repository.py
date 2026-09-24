@@ -39,6 +39,9 @@ UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, uni
 
 
 def workflow_policy(document: dict[str, Any]) -> None:
+    supported_actions = json.loads(
+        (Path(__file__).resolve().parents[1] / ".github/action-policy.json").read_text()
+    )
     if document.get("permissions") != {"contents": "read"}:
         raise ValueError("workflow needs explicit read-only default permissions")
     if not document.get("concurrency"):
@@ -67,6 +70,13 @@ def workflow_policy(document: dict[str, Any]) -> None:
                 raise ValueError("action must pin a supported release or commit")
             if action and action.lower().startswith("azure/login@"):
                 raise ValueError("static validation must not authenticate to Azure")
+            if action:
+                action_name, version = action.rsplit("@", 1)
+                if action_name not in supported_actions or (
+                    not re.fullmatch(r"[0-9a-f]{40}", version)
+                    and version.split(".")[0] not in supported_actions[action_name]
+                ):
+                    raise ValueError("action owner/name or release major is not supported")
             command = step.get("run", "")
             if re.search(
                 r"\baz\s+(?:login|deployment|group\s+delete)|\bterraform\s+(?:-chdir=\S+\s+)?(?:apply|destroy)\b",

@@ -560,6 +560,7 @@
                       "condition": "[parameters('observability').managedGrafana]",
                       "type": "Microsoft.Authorization/roleAssignments",
                       "apiVersion": "2022-04-01",
+                      "scope": "[resourceId('Microsoft.Dashboard/grafana', format('grafana-{0}', uniqueString(resourceGroup().id, parameters('name'))))]",
                       "name": "[guid(resourceId('Microsoft.Dashboard/grafana', format('grafana-{0}', uniqueString(resourceGroup().id, parameters('name')))), parameters('adminGroupObjectId'), '22926164-76b3-42b3-bc55-97df8dab3e41')]",
                       "properties": {
                         "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '22926164-76b3-42b3-bc55-97df8dab3e41')]",

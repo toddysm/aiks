@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from collections.abc import Iterator
+from copy import deepcopy
 from typing import Any
 
 from pydantic import ValidationError
@@ -165,7 +166,7 @@ def compare_bindings(
     config: EnvironmentConfig,
     contract: dict[str, Any],
 ) -> list[str]:
-    failures: list[str] = []
+    failures = compare_bicep_wiring(template, config, contract)
     resources = {
         change["address"]: change["change"]["after"] for change in plan["resource_changes"]
     }
@@ -175,6 +176,7 @@ def compare_bindings(
         FoundationOutputs.model_validate(outputs)
     except ValidationError:
         failures.append("terraform: normalized output schema drift")
+    paired_rules = {rule["address"]: rule for rule in contract["pairedBindings"]}
     for rule in contract["bindings"]:
         if config.spec.environment not in rule.get("environments", ["dev", "production"]):
             continue
@@ -185,13 +187,28 @@ def compare_bindings(
                         expected = value_at(spec, expected["config"])
                     elif "resource" in expected:
                         expected = value_at(resources[expected["resource"]], expected["path"])
+                    elif "resourceList" in expected:
+                        expected = [
+                            value_at(resources[address], expected["path"])
+                            for address in expected["resourceList"]
+                        ]
                     elif "output" in expected:
                         expected = value_at(outputs, expected["output"])
                     elif "mode" in expected:
                         expected = expected["mode"][config.spec.environment]
                 if value_at(resources[rule["address"]], path) != expected:
                     failures.append(f"{rule['address']}: {path} binding drift")
-            except (KeyError, TypeError, IndexError):
+                paired = paired_rules.get(rule["address"])
+                if paired and path in paired["fields"]:
+                    field = paired["fields"][path]
+                    compiled_value = value_at(compiled_resource(template, paired), field["path"])
+                    if "expression" in field:
+                        if compiled_value != field["expression"]:
+                            raise ValueError("unrecognized binding expression")
+                        compiled_value = expected
+                    if compiled_value != expected:
+                        failures.append(f"bicep {rule['address']}: {path} binding drift")
+            except (KeyError, TypeError, IndexError, ValueError):
                 failures.append(f"{rule['address']}: {path} missing binding")
     try:
         terraform_roles = Counter(
@@ -260,6 +277,51 @@ def policy_snapshot(document: Any) -> Any:
     if isinstance(document, list):
         return [policy_snapshot(value) for value in document]
     return document
+
+
+def compare_bicep_wiring(
+    template: dict[str, Any], config: EnvironmentConfig, contract: dict[str, Any]
+) -> list[str]:
+    failures: list[str] = []
+    for rule in contract["moduleBindings"]:
+        try:
+            parameters = compiled_deployment(template, rule["modules"])["properties"]["parameters"]
+            for name, expected in rule["parameters"].items():
+                if parameters[name]["value"] != expected:
+                    failures.append(f"bicep module {rule['modules'][-1]}: {name} source drift")
+        except (KeyError, TypeError, ValueError):
+            failures.append("bicep module binding missing")
+    try:
+        foundation = compiled_module(template, ["foundation"])
+        result = deepcopy(foundation["outputs"]["result"]["value"])
+        for path, expected in contract["outputReferences"].items():
+            if value_at(result, path) != expected:
+                failures.append(f"bicep output {path}: source drift")
+        for path, source in contract["outputObjects"].items():
+            reference = (
+                "[reference(resourceId('Microsoft.Resources/deployments', "
+                f"'{source['module']}'), '2025-04-01').outputs.{source['output']}.value]"
+            )
+            if value_at(result, path) != reference:
+                failures.append(f"bicep output {path}: object source drift")
+            parent_path, _, leaf = path.rpartition(".")
+            parent = value_at(result, parent_path) if parent_path else result
+            parent[leaf] = deepcopy(
+                compiled_module(template, ["foundation", source["module"]])["outputs"][
+                    source["output"]
+                ]["value"]
+            )
+        result.update(
+            environment=config.spec.environment,
+            location=config.spec.location,
+            resourceGroup={"name": "fixture", "id": "fixture"},
+        )
+        result["readiness"]["internalGateway"] = config.spec.environment == "production"
+        result["readiness"]["managedPrometheus"] = config.spec.observability.managed_prometheus
+        FoundationOutputs.model_validate(result)
+    except (KeyError, TypeError, ValueError):
+        failures.append("bicep normalized output schema or object binding drift")
+    return failures
 
 
 def compare_security(environment_plan: dict[str, Any], config: EnvironmentConfig) -> list[str]:
@@ -424,8 +486,9 @@ def compare_security(environment_plan: dict[str, Any], config: EnvironmentConfig
     return failures
 
 
-def compiled_resource(template: dict[str, Any], rule: dict[str, Any]) -> dict[str, Any]:
-    for module in rule["bicepModules"]:
+def compiled_deployment(template: dict[str, Any], modules: list[str]) -> dict[str, Any]:
+    deployment: dict[str, Any] = {}
+    for module in modules:
         resources = template["resources"]
         if isinstance(resources, dict):
             deployment = resources[module]
@@ -435,13 +498,30 @@ def compiled_resource(template: dict[str, Any], rule: dict[str, Any]) -> dict[st
                 raise ValueError(f"{module}: expected exactly one compiled module")
             deployment = deployments[0]
         template = deployment["properties"]["template"]
+    return deployment
+
+
+def compiled_module(template: dict[str, Any], modules: list[str]) -> dict[str, Any]:
+    if not modules:
+        return template
+    return dict(compiled_deployment(template, modules)["properties"]["template"])
+
+
+def compiled_resource(template: dict[str, Any], rule: dict[str, Any]) -> dict[str, Any]:
+    template = compiled_module(template, rule["bicepModules"])
     resources = template["resources"]
     candidates = resources.values() if isinstance(resources, dict) else resources
     matches: list[dict[str, Any]] = [
-        resource for resource in candidates if resource["type"] == rule["type"]
+        resource
+        for resource in candidates
+        if resource["type"].lower() == rule["type"].lower()
+        and all(
+            value_at(resource, path) == expected
+            for path, expected in rule.get("selector", {}).items()
+        )
     ]
     if len(matches) != 1:
-        raise ValueError(f"{rule['id']}: expected exactly one compiled resource")
+        raise ValueError("expected exactly one compiled resource")
     return matches[0]
 
 

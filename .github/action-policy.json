@@ -1,0 +1,8 @@
+{
+  "actions/checkout": ["v7"],
+  "actions/setup-python": ["v6"],
+  "actions/setup-node": ["v6"],
+  "hashicorp/setup-terraform": ["v3"],
+  "github/codeql-action/init": ["v4"],
+  "github/codeql-action/analyze": ["v4"]
+}

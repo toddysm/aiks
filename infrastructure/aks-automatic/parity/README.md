@@ -30,6 +30,11 @@ The gate combines these independent checks:
 - Cluster and registry properties, network inputs, restricted development access,
   private production access, identities, role definitions and scopes, monitoring
   bindings, diagnostics, alert expressions, and readiness outputs are checked.
+- Paired bindings normalize recognized compiled Bicep reference expressions to
+  the same semantic targets used by the Terraform assertions. Separate checks
+  verify parent-module arguments and recursively expand returned output objects.
+  Bicep-only scope, principal, association, argument, and nested-output mutations
+  fail these checks even without running the snapshot comparison.
 - Terraform outputs validate against the shared Python output model, whose full
   schema is pinned in [outputs.schema.json](outputs.schema.json).
 - Negative fixtures remove/add resources, alter roles and principals, expose
@@ -72,7 +77,8 @@ Use actionlint 1.7.12, lychee 0.24.2, and Gitleaks 8.30.1. Python quality-tool
 versions are pinned in [pyproject.toml](../../../pyproject.toml). The dedicated
 workflows also pin Terraform, Bicep, TFLint, Trivy, Helm, kind, and kubeconform;
 downloaded standalone binaries are checksum-verified. GitHub Actions use explicit
-supported release majors. Provider lock files are read-only on initialization,
+supported release majors from [the action policy](../../../.github/action-policy.json).
+Unrecognized actions and unsupported majors are rejected. Provider lock files are read-only on initialization,
 and provider/schema artifacts are never restored from an unkeyed cache.
 
 The local parity suite takes about 7 seconds with initialized tools on the tested
@@ -129,6 +135,10 @@ Terraform now uses AzAPI's ARM-compatible `unique_string` with Bicep's seed orde
 for environment resource names. Cluster identity, private endpoint/link,
 delegation, and connection names are aligned. Both engines use Grafana major 12;
 registry, vault, and Grafana names may differ because they need global uniqueness.
+The Grafana administrator assignment also has a regression-tested resource scope:
+the pinned Bicep compiler omitted it when the source used a non-null assertion
+on the conditional resource reference. The direct resource reference retains the
+scope in the compiled deployment.
 
 **Earlier Terraform deployments can require resource replacement after this naming
 correction.** This is not a state migration. Inspect the plan before any apply;

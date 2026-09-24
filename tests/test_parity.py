@@ -19,6 +19,8 @@ from aiks.parity import (
     compare_inventory,
     compare_resources,
     compare_security,
+    compiled_deployment,
+    compiled_module,
     compiled_resource,
     policy_snapshot,
 )
@@ -201,6 +203,58 @@ def test_environment_bindings(compiled, environment_plan, environment, run):
     config = load_environment_config(ROOT / "config" / f"{environment}.example.yaml")
     contract = json.loads((ROOT / "parity/contract.json").read_text())
     assert compare_bindings(compiled, environment_plan[run], config, contract) == []
+
+
+@pytest.mark.parametrize(
+    "address,path",
+    [
+        ("azurerm_role_assignment.vault_reader", "scope"),
+        ("azurerm_role_assignment.vault_reader", "principalId"),
+        ("azurerm_role_assignment.grafana_admin[0]", "scope"),
+        ("azurerm_role_assignment.grafana_reader[0]", "scope"),
+    ],
+)
+def test_bicep_bindings_fail_independently_of_snapshot(compiled, environment_plan, address, path):
+    config = load_environment_config(ROOT / "config/production.example.yaml")
+    contract = json.loads((ROOT / "parity/contract.json").read_text())
+    template = copy.deepcopy(compiled)
+    paired = next(rule for rule in contract["pairedBindings"] if rule["address"] == address)
+    resource = compiled_resource(template, paired)
+    if path == "scope":
+        resource["scope"] = "[resourceGroup().id]"
+    else:
+        resource["properties"][path] = "[parameters('kubeletObjectId')]"
+    assert compare_bindings(template, environment_plan["production"], config, contract)
+
+
+@pytest.mark.parametrize("mutation", ["module", "association", "output", "nested-output"])
+def test_bicep_wiring_fails_without_snapshot(compiled, environment_plan, mutation):
+    config = load_environment_config(ROOT / "config/production.example.yaml")
+    contract = json.loads((ROOT / "parity/contract.json").read_text())
+    template = copy.deepcopy(compiled)
+    if mutation == "module":
+        deployment = compiled_deployment(template, ["foundation", "cluster"])
+        deployment["properties"]["parameters"]["identityId"]["value"] = (
+            "[parameters('wrongIdentity')]"
+        )
+    elif mutation == "association":
+        rule = next(
+            rule
+            for rule in contract["pairedBindings"]
+            if rule["address"] == "azurerm_monitor_data_collection_rule_association.containers[0]"
+        )
+        compiled_resource(template, rule)["properties"]["dataCollectionRuleId"] = (
+            "[parameters('prometheusRuleId')]"
+        )
+    elif mutation == "output":
+        compiled_module(template, ["foundation"])["outputs"]["result"]["value"]["readiness"][
+            "clientId"
+        ] = "[parameters('wrongIdentity')]"
+    else:
+        del compiled_module(template, ["foundation", "readiness-identity"])["outputs"][
+            "identityInfo"
+        ]["value"]["clientId"]
+    assert compare_bindings(template, environment_plan["production"], config, contract)
 
 
 @pytest.mark.parametrize("environment,run", [("dev", "development"), ("production", "production")])

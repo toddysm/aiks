@@ -20,7 +20,7 @@ def test_duplicate_keys_fail(tmp_path, suffix, content):
 
 
 @pytest.mark.parametrize(
-    "mutation", ["write", "concurrency", "privileged", "action", "login", "apply"]
+    "mutation", ["write", "concurrency", "privileged", "action", "login", "apply", "major", "owner"]
 )
 def test_unsafe_workflow_fails(mutation):
     workflow = {
@@ -40,6 +40,10 @@ def test_unsafe_workflow_fails(mutation):
         workflow["jobs"]["test"]["steps"] = [{"uses": "actions/checkout@main"}]
     elif mutation == "login":
         workflow["jobs"]["test"]["steps"] = [{"uses": "azure/login@v2"}]
+    elif mutation == "major":
+        workflow["jobs"]["test"]["steps"] = [{"uses": "actions/checkout@v999"}]
+    elif mutation == "owner":
+        workflow["jobs"]["test"]["steps"] = [{"uses": "unrecognized/action@v1"}]
     else:
         workflow["jobs"]["test"]["steps"] = [{"run": "terraform -chdir=example apply"}]
     with pytest.raises(ValueError):
