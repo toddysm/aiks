@@ -263,6 +263,27 @@ class ReadinessWorkload(StrictModel):
         return value
 
 
+class InfrastructureLifecycle(StrictModel):
+    """Nonsecret operator timeouts and private-network preflight targets."""
+
+    deployment_timeout_seconds: int = Field(default=1800, ge=300, le=7200)
+    verification_timeout_seconds: int = Field(default=300, ge=30, le=1800)
+    poll_interval_seconds: int = Field(default=10, ge=1, le=60)
+    alert_timeout_seconds: int = Field(default=900, ge=300, le=3600)
+    connection_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    minimum_available_cores: int = Field(default=4, ge=1, le=10000)
+    private_probe_hosts: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("private_probe_hosts")
+    @classmethod
+    def validate_probe_hosts(cls, hosts: list[str]) -> list[str]:
+        if any(
+            not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9.-]{0,251}[a-zA-Z0-9]", host) for host in hosts
+        ):
+            raise ValueError("privateProbeHosts must contain plain DNS hostnames, not URLs")
+        return hosts
+
+
 class EnvironmentSpec(StrictModel):
     """Complete environment specification."""
 
@@ -275,6 +296,7 @@ class EnvironmentSpec(StrictModel):
     terraform: TerraformState
     local: LocalKubernetes = Field(default_factory=LocalKubernetes)
     workload: ReadinessWorkload = Field(default_factory=ReadinessWorkload)
+    lifecycle: InfrastructureLifecycle = Field(default_factory=InfrastructureLifecycle)
     tags: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")

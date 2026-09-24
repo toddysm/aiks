@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from time import perf_counter
-from typing import Literal, NoReturn, cast
+from typing import Literal, cast
 
 import click
 from pydantic import ValidationError
 
 from aiks import __version__
 from aiks.config import EnvironmentConfig, load_environment_config, write_schema
+from aiks.infrastructure import InfrastructureRuntime
 from aiks.logging import configure_logging
 from aiks.outputs import FoundationOutputs
 from aiks.redaction import redact_text
@@ -54,11 +55,6 @@ def _load(path: Path) -> EnvironmentConfig:
         raise click.ClickException(message) from error
 
 
-def _pending(issue: int) -> NoReturn:
-    LOGGER.warning("command is pending implementation in GitHub issue #%s", issue)
-    raise click.ClickException(f"command is not implemented yet; tracked by GitHub issue #{issue}")
-
-
 def _confirm_destroy(config: EnvironmentConfig, allow_production_destroy: bool) -> None:
     environment = config.spec.environment
     if environment == "production" and not allow_production_destroy:
@@ -98,12 +94,11 @@ def infra() -> None:
 @infra.command()
 @CONFIG_OPTION
 @ENGINE_OPTION
-def preflight(config_path: Path, engine: str) -> None:
+@click.option("--json-output", type=click.Path(dir_okay=False, path_type=Path))
+def preflight(config_path: Path, engine: str, json_output: Path | None) -> None:
     """Check local and Azure prerequisites before planning."""
 
-    _load(config_path)
-    del engine
-    _pending(11)
+    _infra_operation(_load(config_path), engine, "preflight", json_output)
 
 
 @infra.command()
@@ -132,40 +127,145 @@ def validate(config_path: Path, engine: str, json_output: Path | None) -> None:
         result.write_json(json_output)
 
 
-def _register_infra_placeholder(name: str, issue: int) -> None:
-    @infra.command(name)
-    @CONFIG_OPTION
-    @ENGINE_OPTION
-    def command(config_path: Path, engine: str) -> None:
-        _load(config_path)
-        del engine
-        _pending(issue)
-
-
-_register_infra_placeholder("plan", 11)
-_register_infra_placeholder("deploy", 11)
+def _infra_operation(
+    config: EnvironmentConfig,
+    engine: str | None,
+    operation: str,
+    json_output: Path | None,
+    *,
+    allow_production: bool = False,
+    allow_partial: bool = False,
+) -> None:
+    started = perf_counter()
+    service: InfrastructureRuntime | None = None
+    try:
+        service = InfrastructureRuntime(config, cast(Literal["bicep", "terraform"] | None, engine))
+        arguments = (
+            {"confirmed_environment": config.spec.environment, "allow_production": allow_production}
+            if operation in {"deploy", "destroy", "exercise_alerts"}
+            else {}
+        )
+        if operation == "destroy" and allow_partial:
+            arguments["allow_partial"] = True
+        data = getattr(service, operation)(**arguments)
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        message = (
+            _validation_message(error)
+            if isinstance(error, ValidationError)
+            else redact_text(str(error))
+        )
+        failure = OperationResult(
+            operation=f"infra.{operation}",
+            phase=service.phase if service else "preflight",
+            succeeded=False,
+            duration_seconds=perf_counter() - started,
+            context={"environment": config.spec.environment, "error": message},
+        )
+        failure.log()
+        if json_output:
+            failure.write_json(json_output)
+        raise click.ClickException(message) from error
+    result = OperationResult(
+        operation=f"infra.{operation}",
+        phase=service.phase,
+        succeeded=True,
+        duration_seconds=perf_counter() - started,
+        context=data,
+    )
+    result.log()
+    result.render()
+    if json_output:
+        result.write_json(json_output)
 
 
 @infra.command()
 @CONFIG_OPTION
-def verify(config_path: Path) -> None:
+@ENGINE_OPTION
+@click.option("--json-output", type=click.Path(dir_okay=False, path_type=Path))
+def plan(config_path: Path, engine: str, json_output: Path | None) -> None:
+    """Preflight and preview the selected engine without applying resources."""
+    _infra_operation(_load(config_path), engine, "plan", json_output)
+
+
+@infra.command()
+@CONFIG_OPTION
+@ENGINE_OPTION
+@click.option("--allow-production-deploy", is_flag=True)
+@click.option("--json-output", type=click.Path(dir_okay=False, path_type=Path))
+def deploy(
+    config_path: Path, engine: str, allow_production_deploy: bool, json_output: Path | None
+) -> None:
+    """Deploy the owned foundation, install readiness, and verify the result."""
+    config = _load(config_path)
+    if config.spec.environment == "production" and not allow_production_deploy:
+        raise click.UsageError("production deployment requires --allow-production-deploy")
+    if (
+        click.prompt(f"Type {config.spec.environment} to confirm deployment")
+        != config.spec.environment
+    ):
+        raise click.ClickException("deployment confirmation did not match the environment")
+    _infra_operation(
+        config, engine, "deploy", json_output, allow_production=allow_production_deploy
+    )
+
+
+@infra.command()
+@CONFIG_OPTION
+@click.option("--engine", type=ENGINE)
+@click.option("--json-output", type=click.Path(dir_okay=False, path_type=Path))
+def verify(config_path: Path, engine: str | None, json_output: Path | None) -> None:
     """Verify deployed Azure and Kubernetes posture."""
 
-    _load(config_path)
-    _pending(11)
+    _infra_operation(_load(config_path), engine, "verify", json_output)
 
 
 @infra.command()
 @CONFIG_OPTION
 @ENGINE_OPTION
 @click.option("--allow-production-destroy", is_flag=True)
-def destroy(config_path: Path, engine: str, allow_production_destroy: bool) -> None:
+@click.option("--allow-partial-cleanup", is_flag=True)
+@click.option("--json-output", type=click.Path(dir_okay=False, path_type=Path))
+def destroy(
+    config_path: Path,
+    engine: str,
+    allow_production_destroy: bool,
+    json_output: Path | None,
+    allow_partial_cleanup: bool,
+) -> None:
     """Destroy an environment with explicit safeguards."""
 
     config = _load(config_path)
-    del engine
     _confirm_destroy(config, allow_production_destroy)
-    _pending(11)
+    _infra_operation(
+        config,
+        engine,
+        "destroy",
+        json_output,
+        allow_production=allow_production_destroy,
+        allow_partial=allow_partial_cleanup,
+    )
+
+
+@infra.command("exercise-alerts")
+@CONFIG_OPTION
+@ENGINE_OPTION
+@click.option("--allow-production-change", is_flag=True)
+@click.option("--json-output", type=click.Path(dir_okay=False, path_type=Path))
+def exercise_alerts(
+    config_path: Path, engine: str, allow_production_change: bool, json_output: Path | None
+) -> None:
+    """Temporarily stop readiness to prove alert fire and resolution."""
+    config = _load(config_path)
+    if config.spec.environment == "production" and not allow_production_change:
+        raise click.UsageError("production alert drill requires --allow-production-change")
+    if (
+        click.prompt(f"Type {config.spec.environment} to confirm readiness interruption")
+        != config.spec.environment
+    ):
+        raise click.ClickException("alert drill confirmation did not match")
+    _infra_operation(
+        config, engine, "exercise_alerts", json_output, allow_production=allow_production_change
+    )
 
 
 @cli.group()
