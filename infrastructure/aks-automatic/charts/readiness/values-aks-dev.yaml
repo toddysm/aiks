@@ -1,0 +1,5 @@
+target: aks
+environment: dev
+gateway:
+  className: approuting-istio
+  internal: false

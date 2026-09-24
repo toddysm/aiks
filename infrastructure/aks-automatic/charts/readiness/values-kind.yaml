@@ -1,0 +1,6 @@
+target: kind
+gateway:
+  className: eg
+  internal: false
+monitoring:
+  enabled: false

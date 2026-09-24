@@ -1,0 +1,10 @@
+target: aks
+environment: production
+replicas: 2
+gateway:
+  className: approuting-istio
+  internal: true
+monitoring:
+  enabled: true
+podDisruptionBudget:
+  enabled: true

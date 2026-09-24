@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "environment", "cluster", "namespace", "image", "identity", "gateway", "resources"],
+  "properties": {
+    "target": {"enum": ["kind", "aks"]},
+    "environment": {"enum": ["dev", "production"]},
+    "cluster": {"type": "string", "minLength": 1, "maxLength": 128},
+    "namespace": {"const": "aiks-readiness"},
+    "replicas": {"type": "integer", "minimum": 1},
+    "ready": {"type": "boolean"},
+    "image": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository", "tag", "digest", "pullPolicy"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1, "pattern": "^[a-z0-9][a-z0-9./:_-]*$"},
+        "tag": {"type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"},
+        "digest": {"type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$"},
+        "pullPolicy": {"enum": ["IfNotPresent", "Never", "Always"]}
+      }
+    },
+    "service": {"type": "object", "additionalProperties": false, "required": ["port"], "properties": {"port": {"type": "integer", "minimum": 1024, "maximum": 65535}}},
+    "gateway": {"type": "object", "additionalProperties": false, "required": ["className", "internal"], "properties": {"className": {"type": "string", "minLength": 1}, "internal": {"type": "boolean"}}},
+    "identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["clientId", "tenantId", "vaultUri", "markerKeyName"],
+      "properties": {
+        "clientId": {"type": "string"}, "tenantId": {"type": "string"},
+        "vaultUri": {"type": "string"}, "markerKeyName": {"const": "readiness-marker"}
+      }
+    },
+    "monitoring": {"type": "object", "additionalProperties": false, "required": ["enabled"], "properties": {"enabled": {"type": "boolean"}}},
+    "resources": {
+      "type": "object", "additionalProperties": false, "required": ["requests", "limits"],
+      "properties": {"requests": {"$ref": "#/definitions/quantities"}, "limits": {"$ref": "#/definitions/quantities"}}
+    },
+    "podDisruptionBudget": {"type": "object", "additionalProperties": false, "required": ["enabled", "minAvailable"], "properties": {"enabled": {"type": "boolean"}, "minAvailable": {"type": "integer", "minimum": 1}}},
+    "autoscaling": {"type": "object", "additionalProperties": false, "required": ["enabled", "minReplicas", "maxReplicas", "cpuUtilization"], "properties": {"enabled": {"type": "boolean"}, "minReplicas": {"type": "integer", "minimum": 1}, "maxReplicas": {"type": "integer", "minimum": 1}, "cpuUtilization": {"type": "integer", "minimum": 1, "maximum": 100}}}
+  },
+  "definitions": {
+    "quantities": {"type": "object", "additionalProperties": false, "required": ["cpu", "memory"], "properties": {"cpu": {"type": "string", "pattern": "^[1-9][0-9]*m$"}, "memory": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$"}}}
+  },
+  "allOf": [
+    {"if": {"properties": {"target": {"const": "aks"}}}, "then": {"properties": {
+      "image": {"properties": {"digest": {"pattern": "^sha256:[a-f0-9]{64}$"}}},
+      "gateway": {"properties": {"className": {"const": "approuting-istio"}}},
+      "identity": {"properties": {"clientId": {"pattern": "^[a-fA-F0-9-]{36}$"}, "tenantId": {"pattern": "^[a-fA-F0-9-]{36}$"}, "vaultUri": {"pattern": "^https://[a-zA-Z0-9.-]+/?$"}}}
+    }}},
+    {"if": {"properties": {"target": {"const": "kind"}}}, "then": {"properties": {"monitoring": {"properties": {"enabled": {"const": false}}}, "identity": {"properties": {"clientId": {"const": ""}, "tenantId": {"const": ""}, "vaultUri": {"const": ""}}}}}},
+    {"if": {"properties": {"target": {"const": "aks"}, "environment": {"const": "production"}}}, "then": {"properties": {"gateway": {"properties": {"internal": {"const": true}}}, "monitoring": {"properties": {"enabled": {"const": true}}}}}}
+  ]
+}

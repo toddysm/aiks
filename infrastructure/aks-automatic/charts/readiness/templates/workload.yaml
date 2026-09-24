@@ -1,0 +1,135 @@
+{{- if and .Values.autoscaling.enabled (gt (int .Values.autoscaling.minReplicas) (int .Values.autoscaling.maxReplicas)) -}}
+{{- fail "autoscaling.minReplicas must not exceed maxReplicas" -}}
+{{- end -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: aiks
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: readiness
+  namespace: {{ .Values.namespace }}
+  {{- if eq .Values.target "aks" }}
+  annotations:
+    azure.workload.identity/client-id: {{ .Values.identity.clientId | quote }}
+    azure.workload.identity/tenant-id: {{ .Values.identity.tenantId | quote }}
+  {{- end }}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: readiness
+  namespace: {{ .Values.namespace }}
+data:
+  config.yaml: |
+    environment: {{ .Values.environment | quote }}
+    target: {{ .Values.target | quote }}
+    cluster: {{ .Values.cluster | quote }}
+    namespace: {{ .Values.namespace | quote }}
+    workload: readiness
+    ready: {{ .Values.ready }}
+    vaultUri: {{ .Values.identity.vaultUri | quote }}
+    markerKeyName: {{ .Values.identity.markerKeyName | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: readiness
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: readiness
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: readiness
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: readiness
+        {{- if eq .Values.target "aks" }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+      annotations:
+        checksum/settings: {{ dict "environment" .Values.environment "target" .Values.target "cluster" .Values.cluster "ready" .Values.ready "identity" .Values.identity | toJson | sha256sum }}
+    spec:
+      serviceAccountName: readiness
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: readiness
+      containers:
+        - name: readiness
+          image: {{ printf "%s%s" .Values.image.repository (ternary (printf "@%s" .Values.image.digest) (printf ":%s" .Values.image.tag) (ne .Values.image.digest "")) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["aiks.readiness:app_factory", "--factory", "--host", "0.0.0.0", "--port", {{ .Values.service.port | quote }}, "--no-access-log"]
+          env:
+            - name: AIKS_READINESS_CONFIG
+              value: /etc/aiks/config.yaml
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          startupProbe:
+            httpGet: {path: /livez, port: http}
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          volumeMounts:
+            - name: settings
+              mountPath: /etc/aiks
+              readOnly: true
+            - name: temporary
+              mountPath: /tmp
+      volumes:
+        - name: settings
+          configMap:
+            name: readiness
+        - name: temporary
+          emptyDir:
+            sizeLimit: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: readiness
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: readiness
+spec:
+  selector:
+    app.kubernetes.io/name: readiness
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http

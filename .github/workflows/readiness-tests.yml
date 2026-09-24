@@ -1,0 +1,70 @@
+name: Readiness workload
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  local-lifecycle:
+    name: Readiness local lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install development dependencies
+        run: python -m pip install -e '.[dev,readiness]'
+      - name: Install pinned local cluster tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 3 https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64 -o kind
+          curl -fsSL --retry 3 https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64.sha256sum -o kind.sha256sum
+          printf '%s  kind\n' "$(cut -d ' ' -f1 kind.sha256sum)" | sha256sum --check --status
+          chmod +x kind
+          curl -fsSL --retry 3 https://get.helm.sh/helm-v4.2.4-linux-amd64.tar.gz -o helm.tar.gz
+          curl -fsSL --retry 3 https://get.helm.sh/helm-v4.2.4-linux-amd64.tar.gz.sha256sum -o helm.sha256sum
+          printf '%s  helm.tar.gz\n' "$(cut -d ' ' -f1 helm.sha256sum)" | sha256sum --check --status
+          tar -xzf helm.tar.gz linux-amd64/helm
+          mv linux-amd64/helm helm
+          curl -fsSL --retry 3 https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz -o kubeconform-linux-amd64.tar.gz
+          curl -fsSL --retry 3 https://github.com/yannh/kubeconform/releases/download/v0.8.0/CHECKSUMS -o kubeconform-checksums.txt
+          grep ' kubeconform-linux-amd64.tar.gz$' kubeconform-checksums.txt | sha256sum --check --status
+          tar -xzf kubeconform-linux-amd64.tar.gz kubeconform
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Validate chart and workload contracts
+        env:
+          AIKS_REQUIRE_HELM: "1"
+        run: |
+          helm lint infrastructure/aks-automatic/charts/readiness
+          python -m pytest tests/test_readiness.py tests/test_workload.py --no-cov
+          python scripts/check_readiness_chart.py
+      - name: Exercise isolated kind lifecycle
+        run: python scripts/test_readiness_lifecycle.py
+      - name: Install pinned image scanner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 3 https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz -o trivy_0.74.0_Linux-64bit.tar.gz
+          curl -fsSL --retry 3 https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_checksums.txt -o checksums.txt
+          grep ' trivy_0.74.0_Linux-64bit.tar.gz$' checksums.txt | sha256sum --check --status
+          tar -xzf trivy_0.74.0_Linux-64bit.tar.gz trivy
+      - name: Scan readiness image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep '^aiks-readiness:aiks-test-9-' | head -1)"
+          test -n "$image"
+          trivy image --db-repository ghcr.io/aquasecurity/trivy-db:2 --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 --timeout 5m "$image"
