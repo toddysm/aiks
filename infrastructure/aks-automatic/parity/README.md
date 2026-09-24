@@ -152,3 +152,8 @@ visibility and refuses unverifiable inventories or any remaining matching group.
 - Security finding: update the affected component or fix the policy. Do not add
   broad suppressions. The existing backend-specific Trivy exception remains scoped
   to its documented deny-default network policy.
+
+Gitleaks retains all default rules. Its sole added exception matches the public
+Key Vault Reader role identifier exactly, only in the parity contract and only
+for the generic-key rule. The scanner test requires both generic-key and GitHub
+token findings; neither rule nor the contract file is excluded from scanning.

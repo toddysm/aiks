@@ -68,6 +68,8 @@ jobs:
           fixture="$RUNNER_TEMP/secret-fixture"
           mkdir -p "$fixture"
           printf 'github_token = "%s%s%s"\n' ghp_ A3mN8vQ2rX7sP5kL9t Z6cD4fG1hJ0bW3yU5e > "$fixture/negative.txt"
+          printf 'api_key = "%s%s"\n' A3mN8vQ2rX7sP5kL9t Z6cD4fG1hJ0bW3yU5e >> "$fixture/negative.txt"
           result=0
-          gitleaks dir --redact --no-banner "$fixture" || result=$?
+          gitleaks dir --redact --no-banner --report-format json --report-path "$RUNNER_TEMP/secret-fixture-report.json" "$fixture" || result=$?
           test "$result" = 1
+          jq -e 'map(.RuleID) | sort == ["generic-api-key", "github-pat"]' "$RUNNER_TEMP/secret-fixture-report.json"
