@@ -163,3 +163,33 @@ def test_refuse_unverified_recovery_state(state: object) -> None:
     config = load_environment_config(CONFIG / "dev.example.yaml")
     with pytest.raises(ValueError):
         terraform.check_recovery(state, config, SUBSCRIPTION)
+
+
+@pytest.mark.parametrize(
+    "resource",
+    [
+        None,
+        "invalid",
+        {},
+        {"mode": [], "type": "azurerm_resource_group"},
+        {"mode": "managed", "type": []},
+        {"mode": "managed", "type": "azurerm_resource_group", "instances": None},
+        {"mode": "managed", "type": "azurerm_resource_group", "instances": [None]},
+        {"mode": "managed", "type": "azurerm_resource_group", "instances": [{"attributes": []}]},
+        {
+            "mode": "managed",
+            "type": "azurerm_resource_group",
+            "instances": [{"attributes": {"id": 1}}],
+        },
+        {
+            "mode": "managed",
+            "type": "azurerm_role_assignment",
+            "instances": [{"attributes": {"id": "test", "scope": []}}],
+        },
+    ],
+)
+def test_recovery_rejects_malformed_nested_shapes(resource: object) -> None:
+    config = load_environment_config(CONFIG / "dev.example.yaml")
+    document = {"version": 4, "serial": 1, "lineage": "test", "resources": [resource]}
+    with pytest.raises(ValueError):
+        terraform.check_recovery(document, config, SUBSCRIPTION)

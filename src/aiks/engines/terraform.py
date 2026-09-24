@@ -137,7 +137,12 @@ def check_blobs(
 def check_recovery(document: Any, config: EnvironmentConfig, subscription: str) -> None:
     if not isinstance(document, dict) or document.get("version") != 4:
         raise ValueError("unsupported bootstrap recovery state")
-    if not document.get("lineage") or not isinstance(document.get("serial"), int):
+    if (
+        not isinstance(document.get("lineage"), str)
+        or not document["lineage"]
+        or not isinstance(document.get("serial"), int)
+        or isinstance(document["serial"], bool)
+    ):
         raise ValueError("bootstrap recovery state lacks lineage or serial")
     group_id = (
         f"/subscriptions/{UUID(subscription)}/resourceGroups/"
@@ -158,21 +163,33 @@ def check_recovery(document: Any, config: EnvironmentConfig, subscription: str) 
         raise ValueError("bootstrap recovery state lacks resources")
     seen: set[str] = set()
     for resource in resources:
+        if not isinstance(resource, dict) or resource.get("mode") not in ("data", "managed"):
+            raise ValueError("invalid bootstrap state resource shape")
         if resource.get("mode") == "data":
             continue
         kind = resource.get("type")
-        if resource.get("module") or kind not in {*expected, "azurerm_role_assignment"}:
+        if (
+            not isinstance(kind, str)
+            or resource.get("module")
+            or kind not in {*expected, "azurerm_role_assignment"}
+        ):
             raise ValueError("recovery state contains non-bootstrap resources")
         instances = resource.get("instances", [])
-        if len(instances) != 1 or kind in seen:
+        if not isinstance(instances, list) or len(instances) != 1 or kind in seen:
             raise ValueError("ambiguous bootstrap state resources")
+        if not isinstance(instances[0], dict):
+            raise ValueError("invalid bootstrap state instance shape")
         attributes = instances[0].get("attributes", {})
+        if not isinstance(attributes, dict):
+            raise ValueError("invalid bootstrap state attribute shape")
         resource_id = attributes.get("id", "")
+        if not isinstance(resource_id, str):
+            raise ValueError("invalid bootstrap state resource ID")
         if kind in expected and resource_id.lower() != expected[kind].lower():
             raise ValueError("bootstrap state resource does not match configured backend")
-        if (
-            kind == "azurerm_role_assignment"
-            and attributes.get("scope", "").lower() != expected["azurerm_storage_container"].lower()
+        if kind == "azurerm_role_assignment" and (
+            not isinstance(attributes.get("scope"), str)
+            or attributes["scope"].lower() != expected["azurerm_storage_container"].lower()
         ):
             raise ValueError("bootstrap state role scope does not match the container")
         seen.add(kind)
