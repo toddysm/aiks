@@ -149,11 +149,20 @@ class StateBackend:
         self._owned(group)
         account = self._az("storage", "account", "show", "--ids", self.account_id)
         self._owned(account)
+        rules = account.get("networkRuleSet")
         if (
             account.get("allowSharedKeyAccess") is not False
-            or account.get("networkRuleSet", {}).get("defaultAction") != "Deny"
+            or account.get("allowBlobPublicAccess") is not False
+            or account.get("enableHttpsTrafficOnly") is not True
+            or account.get("minimumTlsVersion") not in {"TLS1_2", "TLS1_3"}
+            or not isinstance(rules, dict)
+            or rules.get("defaultAction") != "Deny"
+            or rules.get("bypass") != "None"
         ):
-            raise ValueError("backend must disable shared keys and deny default network access")
+            raise ValueError(
+                "backend security posture drift: require no shared keys/public blobs, "
+                "HTTPS with TLS 1.2+, and deny-default networking without bypass"
+            )
         blobs = self._blob("list", "--num-results", "*")
         if not isinstance(blobs, list) or not all(
             isinstance(blob, dict) and isinstance(blob.get("name"), str) for blob in blobs

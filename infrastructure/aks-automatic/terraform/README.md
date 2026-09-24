@@ -112,6 +112,12 @@ Lease checks and status output normalize both flat `properties.leaseStatus` fiel
 and nested `properties.lease` metadata. Conflicting, malformed, or unknown lease
 status is rejected rather than interpreted as unlocked.
 
+Before any blob inventory or state download, all state commands verify that the
+account disables shared keys and public blobs, requires HTTPS with TLS 1.2 or newer,
+and uses deny-default network rules with no bypass. Security drift stops the
+operation before reading state; remediate through a separately reviewed management
+operation rather than downloading state from an account with a weakened posture.
+
 Cleanup acquires the bootstrap lease, downloads and validates the state, deletes the
 state group outside Terraform, verifies absence, and writes `cleanup-receipt.json`.
 `--delete-recovery-copy` removes the newly created copy only after successful deletion;
@@ -134,6 +140,11 @@ Terraform uses Grafana 12 because AzureRM 5.x accepts 12/13; Bicep currently pin
 The existing portable dashboard asset is shared, but import, metrics, and version
 compatibility require live verification. Alert definitions and access profiles mirror
 Bicep semantically; native-provider service API versions may differ from Bicep's pins.
+
+Monitoring workspaces and data-collection rules precede cluster creation. Separate
+data-collection rule associations reference the cluster afterward; the cluster does
+not depend on those associations. Native Terraform validation checks this dependency
+graph in continuous integration.
 
 The operator's environment configuration is validated in Python before mapping. Direct
 Terraform callers must use these validated inputs; Terraform does not duplicate every

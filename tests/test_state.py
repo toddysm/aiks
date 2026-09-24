@@ -139,6 +139,7 @@ class Cloud:
         self.extra_container = False
         self.extra_service = False
         self.fail_delete = False
+        self.account_patch: dict[str, Any] = {}
         self.calls: list[tuple[str, ...]] = []
         self.document = recovery_state(service)
 
@@ -170,7 +171,11 @@ class Cloud:
                     "aiks-owner": "aiks-dev-dev",
                 },
                 "allowSharedKeyAccess": False,
-                "networkRuleSet": {"defaultAction": "Deny"},
+                "allowBlobPublicAccess": False,
+                "enableHttpsTrafficOnly": True,
+                "minimumTlsVersion": "TLS1_2",
+                "networkRuleSet": {"defaultAction": "Deny", "bypass": "None"},
+                **self.account_patch,
             }
         if arguments[:2] == ("resource", "list"):
             return [{"id": self.service.account_id}] + (
@@ -335,6 +340,32 @@ def test_empty_migrated_local_state_requires_remote_state(
             json.dumps(dict(cloud.document, resources=[]))
         )
     assert service.bootstrap()["phase"] == "remote-state-verified"
+
+
+@pytest.mark.parametrize("operation", ["bootstrap", "status", "destroy"])
+@pytest.mark.parametrize(
+    "drift",
+    [
+        {"allowSharedKeyAccess": True},
+        {"allowBlobPublicAccess": True},
+        {"enableHttpsTrafficOnly": False},
+        {"minimumTlsVersion": "TLS1_0"},
+        {"networkRuleSet": {"defaultAction": "Deny", "bypass": "AzureServices"}},
+        {"networkRuleSet": None},
+    ],
+)
+def test_security_drift_blocks_blob_access(
+    service: StateBackend, cloud: Cloud, operation: str, drift: dict[str, Any]
+) -> None:
+    cloud.exists = cloud.remote = True
+    cloud.account_patch = drift
+    with pytest.raises(ValueError, match="security posture drift"):
+        if operation == "destroy":
+            service.destroy(confirmed_environment="dev")
+        else:
+            getattr(service, operation)()
+    assert not any(call[:2] == ("storage", "blob") for call in cloud.calls)
+    assert not cloud.deleted
 
 
 def test_migration_missing_remote_refuses_overwrite(service: StateBackend, cloud: Cloud) -> None:
