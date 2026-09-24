@@ -153,6 +153,8 @@ class Cloud:
             return SUBSCRIPTION
         if arguments[:2] == ("group", "exists"):
             return self.exists if arguments[-1] == "aiks-tfstate-dev" else self.environment_exists
+        if arguments[:2] == ("group", "list"):
+            return [{"name": "rg-aiks-dev-dev-legacy"}] if self.environment_exists else []
         if arguments[:2] == ("group", "delete"):
             if self.fail_delete:
                 raise ValueError("deletion denied")
@@ -274,6 +276,37 @@ def test_complete_guarded_cleanup(
         assert Path(receipt["recoveryCopy"]).stat().st_mode & 0o777 == 0o600
     else:
         assert not list(service.directory.glob("recovery-*.tfstate"))
+
+
+@pytest.mark.parametrize(
+    "groups", [None, [{}], ["invalid"], [{"name": 5}], [{"name": "RG-AIKS-DEV-DEV-newhash"}]]
+)
+def test_cleanup_refuses_unverified_or_renamed_groups(service, cloud, monkeypatch, groups):
+    cloud.exists = cloud.remote = True
+
+    def response(*arguments):
+        if arguments == ("group", "list"):
+            return groups
+        return cloud.az(*arguments)
+
+    monkeypatch.setattr(service, "_az", response)
+    with pytest.raises(ValueError, match="environment"):
+        service.destroy(confirmed_environment="dev")
+    assert not cloud.deleted
+
+
+def test_cleanup_rechecks_environment_after_lease(service, cloud, monkeypatch):
+    cloud.exists = cloud.remote = True
+
+    def response(*arguments):
+        if arguments == ("group", "list") and cloud.locked:
+            return [{"name": "rg-aiks-dev-dev-newhash"}]
+        return cloud.az(*arguments)
+
+    monkeypatch.setattr(service, "_az", response)
+    with pytest.raises(ValueError, match="environment"):
+        service.destroy(confirmed_environment="dev")
+    assert not cloud.deleted and not cloud.locked
 
 
 @pytest.mark.parametrize(

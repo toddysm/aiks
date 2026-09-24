@@ -29,7 +29,7 @@ resource grafana 'Microsoft.Dashboard/grafana@2024-10-01' = if (observability.ma
   identity: { type: 'SystemAssigned' }
   sku: { name: 'Standard' }
   properties: {
-    grafanaMajorVersion: '11'
+    grafanaMajorVersion: '12'
     apiKey: 'Disabled'
     deterministicOutboundIP: 'Enabled'
     zoneRedundancy: 'Enabled'
@@ -45,7 +45,7 @@ resource grafana 'Microsoft.Dashboard/grafana@2024-10-01' = if (observability.ma
 
 resource grafanaAdmin 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (observability.managedGrafana) {
   name: guid(grafana!.id, adminGroupObjectId, '22926164-76b3-42b3-bc55-97df8dab3e41')
-  scope: grafana!
+  scope: grafana
   properties: {
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',

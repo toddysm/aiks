@@ -1,0 +1,334 @@
+{
+  "$defs": {
+    "ClusterInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "fqdn": {
+          "title": "Fqdn",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "id",
+        "fqdn"
+      ],
+      "title": "ClusterInfo",
+      "type": "object"
+    },
+    "Identities": {
+      "additionalProperties": false,
+      "properties": {
+        "cluster": {
+          "$ref": "#/$defs/IdentityInfo"
+        },
+        "readiness": {
+          "$ref": "#/$defs/IdentityInfo"
+        }
+      },
+      "required": [
+        "cluster",
+        "readiness"
+      ],
+      "title": "Identities",
+      "type": "object"
+    },
+    "IdentityInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "clientId": {
+          "title": "Clientid",
+          "type": "string"
+        },
+        "principalId": {
+          "title": "Principalid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "id",
+        "clientId",
+        "principalId"
+      ],
+      "title": "IdentityInfo",
+      "type": "object"
+    },
+    "MonitoringInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "logAnalyticsId": {
+          "title": "Loganalyticsid",
+          "type": "string"
+        },
+        "azureMonitorWorkspaceId": {
+          "title": "Azuremonitorworkspaceid",
+          "type": "string"
+        },
+        "prometheusQueryEndpoint": {
+          "title": "Prometheusqueryendpoint",
+          "type": "string"
+        },
+        "grafanaId": {
+          "title": "Grafanaid",
+          "type": "string"
+        },
+        "grafanaEndpoint": {
+          "title": "Grafanaendpoint",
+          "type": "string"
+        }
+      },
+      "required": [
+        "logAnalyticsId",
+        "azureMonitorWorkspaceId",
+        "prometheusQueryEndpoint",
+        "grafanaId",
+        "grafanaEndpoint"
+      ],
+      "title": "MonitoringInfo",
+      "type": "object"
+    },
+    "NetworkInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "vnetId": {
+          "title": "Vnetid",
+          "type": "string"
+        },
+        "subnetIds": {
+          "$ref": "#/$defs/SubnetIds"
+        }
+      },
+      "required": [
+        "vnetId",
+        "subnetIds"
+      ],
+      "title": "NetworkInfo",
+      "type": "object"
+    },
+    "ReadinessInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "title": "Namespace",
+          "type": "string"
+        },
+        "serviceAccount": {
+          "title": "Serviceaccount",
+          "type": "string"
+        },
+        "clientId": {
+          "title": "Clientid",
+          "type": "string"
+        },
+        "tenantId": {
+          "title": "Tenantid",
+          "type": "string"
+        },
+        "vaultUri": {
+          "title": "Vaulturi",
+          "type": "string"
+        },
+        "markerKeyName": {
+          "title": "Markerkeyname",
+          "type": "string"
+        },
+        "gatewayClassName": {
+          "title": "Gatewayclassname",
+          "type": "string"
+        },
+        "internalGateway": {
+          "title": "Internalgateway",
+          "type": "boolean"
+        },
+        "managedPrometheus": {
+          "title": "Managedprometheus",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "namespace",
+        "serviceAccount",
+        "clientId",
+        "tenantId",
+        "vaultUri",
+        "markerKeyName",
+        "gatewayClassName",
+        "internalGateway",
+        "managedPrometheus"
+      ],
+      "title": "ReadinessInfo",
+      "type": "object"
+    },
+    "RegistryInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "loginServer": {
+          "title": "Loginserver",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "id",
+        "loginServer"
+      ],
+      "title": "RegistryInfo",
+      "type": "object"
+    },
+    "ResourceInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "id"
+      ],
+      "title": "ResourceInfo",
+      "type": "object"
+    },
+    "SubnetIds": {
+      "additionalProperties": false,
+      "properties": {
+        "apiServer": {
+          "title": "Apiserver",
+          "type": "string"
+        },
+        "systemNode": {
+          "title": "Systemnode",
+          "type": "string"
+        },
+        "userNode": {
+          "title": "Usernode",
+          "type": "string"
+        },
+        "privateEndpoint": {
+          "title": "Privateendpoint",
+          "type": "string"
+        }
+      },
+      "required": [
+        "apiServer",
+        "systemNode",
+        "userNode",
+        "privateEndpoint"
+      ],
+      "title": "SubnetIds",
+      "type": "object"
+    },
+    "VaultInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        },
+        "markerKeyName": {
+          "title": "Markerkeyname",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "id",
+        "uri",
+        "markerKeyName"
+      ],
+      "title": "VaultInfo",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "environment": {
+      "enum": [
+        "dev",
+        "production"
+      ],
+      "title": "Environment",
+      "type": "string"
+    },
+    "location": {
+      "title": "Location",
+      "type": "string"
+    },
+    "resourceGroup": {
+      "$ref": "#/$defs/ResourceInfo"
+    },
+    "cluster": {
+      "$ref": "#/$defs/ClusterInfo"
+    },
+    "registry": {
+      "$ref": "#/$defs/RegistryInfo"
+    },
+    "vault": {
+      "$ref": "#/$defs/VaultInfo"
+    },
+    "network": {
+      "$ref": "#/$defs/NetworkInfo"
+    },
+    "identities": {
+      "$ref": "#/$defs/Identities"
+    },
+    "monitoring": {
+      "$ref": "#/$defs/MonitoringInfo"
+    },
+    "readiness": {
+      "$ref": "#/$defs/ReadinessInfo"
+    }
+  },
+  "required": [
+    "environment",
+    "location",
+    "resourceGroup",
+    "cluster",
+    "registry",
+    "vault",
+    "network",
+    "identities",
+    "monitoring",
+    "readiness"
+  ],
+  "title": "FoundationOutputs",
+  "type": "object"
+}

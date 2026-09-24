@@ -1,0 +1,14 @@
+title = "AIKS secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Public Azure Key Vault Reader built-in role identifier, not a credential"
+condition = "AND"
+paths = ['''^infrastructure/aks-automatic/parity/contract\.json$''']
+regexTarget = "secret"
+regexes = ['''^21090545-7ca7-4776-b22c-e363652d74d2$''']

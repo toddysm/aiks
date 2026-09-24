@@ -136,7 +136,7 @@ AzAPI solely owns the cluster, registry, and marker-key child. AzureRM owns the 
 identities, role assignments, vault, endpoints, monitoring, alerts, and state storage.
 System-subnet delegation is the only ignored lifecycle field; all other declared network
 properties remain Terraform-managed. Custom cluster network changes trigger replacement.
-Terraform uses Grafana 12 because AzureRM 5.x accepts 12/13; Bicep currently pins 11.
+Both engines use Grafana 12, supported by the AzureRM 5.x provider.
 The existing portable dashboard asset is shared, but import, metrics, and version
 compatibility require live verification. Alert definitions and access profiles mirror
 Bicep semantically; native-provider service API versions may differ from Bicep's pins.

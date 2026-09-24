@@ -57,7 +57,7 @@ variable "config" {
 data "azurerm_client_config" "current" {}
 
 locals {
-  suffix = substr(sha256("${data.azurerm_client_config.current.subscription_id}/${var.config.prefix}/${var.config.environment}"), 0, 8)
+  suffix = substr(provider::azapi::unique_string([data.azurerm_client_config.current.subscription_id, var.config.environment, var.config.prefix]), 0, 8)
   name   = "${var.config.prefix}-${var.config.environment}-${local.suffix}"
   tags   = merge(var.config.tags, { environment = var.config.environment, aiks-managed = "true" })
 }
@@ -70,7 +70,7 @@ resource "azurerm_resource_group" "environment" {
 
 resource "azurerm_user_assigned_identity" "identity" {
   for_each            = toset(["cluster", "readiness"])
-  name                = "id-${each.key}-${local.name}"
+  name                = "id-${each.key == "cluster" ? "aks" : each.key}-${local.name}"
   resource_group_name = azurerm_resource_group.environment.name
   location            = var.config.location
   tags                = local.tags

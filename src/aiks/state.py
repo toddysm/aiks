@@ -23,7 +23,6 @@ from aiks.engines.terraform import (
     bootstrap_variables,
     check_blobs,
     check_recovery,
-    environment_group,
     owner,
     write_json,
 )
@@ -346,6 +345,17 @@ class StateBackend:
                 "backend": self.config.spec.terraform.state_storage_account,
             }
 
+    def _check_environment_absent(self) -> None:
+        groups = self._az("group", "list")
+        if not isinstance(groups, list) or any(
+            not isinstance(group, dict) or not isinstance(group.get("name"), str)
+            for group in groups
+        ):
+            raise ValueError("environment absence cannot be verified")
+        prefix = f"rg-{owner(self.config)}-".lower()
+        if any(group["name"].lower().startswith(prefix) for group in groups):
+            raise ValueError("environment still exists or its absence cannot be verified")
+
     def destroy(
         self,
         *,
@@ -362,13 +372,7 @@ class StateBackend:
             check_blobs(blobs)
             if len(blobs) != 1:
                 raise ValueError("a verified bootstrap state is required before backend deletion")
-            if (
-                self._az(
-                    "group", "exists", "--name", environment_group(self.config, self.subscription)
-                )
-                is not False
-            ):
-                raise ValueError("environment still exists or its absence cannot be verified")
+            self._check_environment_absent()
             resources = self._az(
                 "resource",
                 "list",
@@ -409,16 +413,7 @@ class StateBackend:
             try:
                 self._download(recovery, lease)
                 check_blobs(self.inventory(), allow_bootstrap_lease=True)
-                if (
-                    self._az(
-                        "group",
-                        "exists",
-                        "--name",
-                        environment_group(self.config, self.subscription),
-                    )
-                    is not False
-                ):
-                    raise ValueError("environment appeared during cleanup")
+                self._check_environment_absent()
                 self._az(
                     "group",
                     "delete",

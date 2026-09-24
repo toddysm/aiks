@@ -17,6 +17,7 @@ jobs:
   quality:
     name: Python quality gates
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -29,6 +30,19 @@ jobs:
 
       - name: Install development dependencies
         run: python -m pip install -e '.[dev,readiness]'
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Initialize locked providers for parity coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          for root in environment bootstrap modules/cluster; do
+            terraform -chdir="infrastructure/aks-automatic/terraform/$root" init -backend=false -input=false -lockfile=readonly
+          done
 
       - name: Install pinned Bicep compiler
         shell: bash
@@ -55,13 +69,15 @@ jobs:
       - name: Run tests
         env:
           AIKS_REQUIRE_BICEP: "1"
+          AIKS_REQUIRE_PARITY: "1"
+          AIKS_REQUIRE_TERRAFORM: "1"
         run: python -m pytest
 
       - name: Run Ruff lint
-        run: ruff check src tests
+        run: ruff check src tests scripts/check_repository.py
 
       - name: Check Ruff formatting
-        run: ruff format --check src tests
+        run: ruff format --check src tests scripts/check_repository.py
 
       - name: Run strict type checks
         run: mypy src
