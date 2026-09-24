@@ -265,7 +265,7 @@ class StateBackend:
             if not isinstance(exists, bool):
                 raise ValueError("unable to determine backend existence")
             blobs = self.inventory() if exists else []
-            check_blobs(blobs)
+            check_blobs(blobs, environment_key=backend(self.config)["key"])
             if blobs:
                 recovery = self.directory / f"resume-{uuid4()}.tfstate"
                 remote_state = self._download(recovery)
@@ -318,8 +318,8 @@ class StateBackend:
                     "-no-color",
                 )
             verified = self.inventory()
-            check_blobs(verified)
-            if len(verified) != 1:
+            check_blobs(verified, environment_key=backend(self.config)["key"])
+            if not any(blob["name"] == BOOTSTRAP_KEY for blob in verified):
                 raise ValueError("bootstrap migration was not verified")
             self._download(self.directory / f"verified-{uuid4()}.tfstate")
             return {

@@ -43,8 +43,12 @@ run "custom_dev_network" {
     error_message = "Cluster security defaults and Automatic SKU are mandatory."
   }
   assert {
-    condition     = !contains(keys(azapi_resource.cluster.response_export_values), "kube_config") && length(azapi_resource.cluster.response_export_values) == 4
+    condition     = azapi_resource.cluster.response_export_values == { fqdn = "properties.fqdn", privateFqdn = "properties.privateFQDN", oidcIssuer = "properties.oidcIssuerProfile.issuerURL", kubeletObjectId = "properties.identityProfile.kubeletidentity.objectId" } && azapi_resource.registry.response_export_values == { loginServer = "properties.loginServer" }
     error_message = "Only nonsecret cluster fields may be exported."
+  }
+  assert {
+    condition     = azapi_resource.cluster.replace_triggers_external_values[3] == var.subnet_ids
+    error_message = "The dynamic replacement trigger must track the complete subnet object."
   }
 }
 

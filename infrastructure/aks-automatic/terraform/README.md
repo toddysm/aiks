@@ -49,6 +49,11 @@ backend. After destroying an environment, inspect and intentionally retire its e
 remote state key before `aiks state destroy`; this command never deletes those keys
 for you or assumes an empty-looking state belongs to this operation.
 
+Repeated bootstrap updates permit the configured environment's exact state key
+alongside `bootstrap.tfstate`. Unknown keys and active leases still block updates;
+environment state without bootstrap state requires explicit recovery. This does not
+relax the bootstrap-only key inventory required for deletion.
+
 ## Native Terraform environment
 
 The command-line environment lifecycle (`aiks infra deploy/plan/destroy`) remains
@@ -155,6 +160,25 @@ Sources:
   supply the missing initial network and DNS configuration through AzureRM.
 
 ## Reproduce offline
+
+### Pinned provider review checks
+
+The review checks use the installed, locked versions rather than older provider
+behavior. AzureRM 5.6.0's
+[container implementation](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.6.0/internal/services/storage/storage_container_resource.go)
+creates containers through `Storage.ResourceManager.BlobContainers` and records
+`commonids.NewStorageContainerID(...).ID()` in state. The container is therefore
+created through the management plane before granting the operator its container-scoped
+data role. Its `id` is the management resource ID; `url` is the separate data endpoint,
+and the installed schema has no `resource_manager_id` attribute.
+
+AzAPI 2.12.0's installed `azapi_resource` schema declares both
+`response_export_values` and `replace_triggers_external_values` as dynamic.
+Mapped response exports are documented as alias-to-JMESPath queries, and replacement
+triggers can contain objects. The existing selected exports and subnet-object trigger
+are intentional. Provider-schema tests, native validation, and profile assertions run
+in continuous integration to detect changes in these contracts. These offline checks
+are not evidence of live resource deployment.
 
 Run from the repository root. These commands download signed provider binaries
 but do not authenticate to Azure, initialize remote state, or create resources.

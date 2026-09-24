@@ -114,17 +114,24 @@ def asset_root() -> Iterator[Path]:
         yield source
 
 
-def check_blobs(blobs: Any, *, allow_bootstrap_lease: bool = False) -> None:
+def check_blobs(
+    blobs: Any, *, allow_bootstrap_lease: bool = False, environment_key: str | None = None
+) -> None:
     if not isinstance(blobs, list):
         raise ValueError("unable to verify state-key inventory")
     for blob in blobs:
-        if not isinstance(blob, dict) or blob.get("name") != BOOTSTRAP_KEY:
+        allowed_keys = {BOOTSTRAP_KEY, environment_key} if environment_key else {BOOTSTRAP_KEY}
+        if not isinstance(blob, dict) or blob.get("name") not in allowed_keys:
             raise ValueError("backend contains a non-bootstrap state key or unrelated blob")
         lease = blob.get("properties", {}).get("lease", {})
         if lease.get("status") not in {"unlocked", "locked"}:
             raise ValueError("unable to verify state lease status")
-        if lease["status"] != "unlocked" and not allow_bootstrap_lease:
+        if lease["status"] != "unlocked" and not (
+            allow_bootstrap_lease and blob["name"] == BOOTSTRAP_KEY
+        ):
             raise ValueError("backend has an active state lease")
+    if environment_key and blobs and not any(blob["name"] == BOOTSTRAP_KEY for blob in blobs):
+        raise ValueError("environment state exists without bootstrap state; recover explicitly")
 
 
 def check_recovery(document: Any, config: EnvironmentConfig, subscription: str) -> None:

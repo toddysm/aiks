@@ -1,6 +1,9 @@
 """Offline Terraform input and backend guard tests."""
 
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -10,6 +13,37 @@ from aiks.engines import bicep, terraform
 
 CONFIG = Path(__file__).resolve().parents[1] / "infrastructure/aks-automatic/config"
 SUBSCRIPTION = "11111111-1111-4111-8111-111111111111"
+
+
+@pytest.mark.parametrize("root", ["bootstrap", "modules/cluster"])
+def test_pinned_provider_schema(root: str) -> None:
+    directory = CONFIG.parent / "terraform" / root
+    executable = shutil.which("terraform")
+    if executable is None or not (directory / ".terraform/providers").exists():
+        if os.environ.get("AIKS_REQUIRE_TERRAFORM") == "1":
+            pytest.fail("Terraform and locked provider initialization are required")
+        pytest.skip("provider schema checks run in the Terraform CI job")
+    result = subprocess.run(
+        [executable, f"-chdir={directory}", "providers", "schema", "-json"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    schemas = json.loads(result.stdout)["provider_schemas"]
+    if root == "bootstrap":
+        container = schemas["registry.terraform.io/hashicorp/azurerm"]["resource_schemas"][
+            "azurerm_storage_container"
+        ]["block"]["attributes"]
+        assert container["storage_account_id"]["required"]
+        assert "resource_manager_id" not in container
+        assert container["url"]["computed"]
+    else:
+        resource = schemas["registry.terraform.io/azure/azapi"]["resource_schemas"][
+            "azapi_resource"
+        ]["block"]["attributes"]
+        assert resource["response_export_values"]["type"] == "dynamic"
+        assert resource["replace_triggers_external_values"]["type"] == "dynamic"
 
 
 @pytest.mark.parametrize("environment", ["dev", "production"])
@@ -60,6 +94,26 @@ def test_accept_unused_backend() -> None:
     terraform.check_blobs(
         [{"name": "bootstrap.tfstate", "properties": {"lease": {"status": "unlocked"}}}]
     )
+
+
+@pytest.mark.parametrize(
+    "name,lease", [("unrelated.tfstate", "unlocked"), ("dev/environment.tfstate", "locked")]
+)
+def test_bootstrap_update_rejects_unknown_or_locked_key(name: str, lease: str) -> None:
+    blobs = [
+        {"name": "bootstrap.tfstate", "properties": {"lease": {"status": "unlocked"}}},
+        {"name": name, "properties": {"lease": {"status": lease}}},
+    ]
+    with pytest.raises(ValueError):
+        terraform.check_blobs(blobs, environment_key="dev/environment.tfstate")
+
+
+def test_bootstrap_update_requires_bootstrap_key() -> None:
+    with pytest.raises(ValueError, match="without bootstrap"):
+        terraform.check_blobs(
+            [{"name": "dev/environment.tfstate", "properties": {"lease": {"status": "unlocked"}}}],
+            environment_key="dev/environment.tfstate",
+        )
 
 
 @pytest.mark.parametrize("environment", ["dev", "production"])

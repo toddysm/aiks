@@ -131,6 +131,7 @@ class Cloud:
         self.exists = False
         self.remote = False
         self.environment_exists = False
+        self.environment_key: str | None = None
         self.locked = False
         self.deleted = False
         self.extra_resource = False
@@ -188,6 +189,16 @@ class Cloud:
                             },
                         }
                     ]
+                    + (
+                        [
+                            {
+                                "name": self.environment_key,
+                                "properties": {"lease": {"status": "unlocked"}},
+                            }
+                        ]
+                        if self.environment_key
+                        else []
+                    )
                     if self.remote
                     else []
                 )
@@ -223,14 +234,24 @@ def cloud(service: StateBackend, monkeypatch: pytest.MonkeyPatch) -> Cloud:
     return cloud
 
 
-def test_bootstrap_migration_and_repeat(service: StateBackend, cloud: Cloud) -> None:
+@pytest.mark.parametrize("deployed", [False, True])
+def test_bootstrap_migration_and_repeat(
+    service: StateBackend, cloud: Cloud, deployed: bool
+) -> None:
     assert service.bootstrap()["phase"] == "remote-state-verified"
     assert cloud.remote
+    if deployed:
+        cloud.environment_key = "aiks-dev-dev/environment.tfstate"
+        cloud.environment_exists = True
     assert service.bootstrap()["phase"] == "remote-state-verified"
-    assert service.status()["stateKeys"] == ["bootstrap.tfstate"]
+    expected_keys = ["bootstrap.tfstate"] + ([cloud.environment_key] if deployed else [])
+    assert service.status()["stateKeys"] == expected_keys
     assert any("-migrate-state" in call for call in cloud.calls)
     assert any("-reconfigure" in call for call in cloud.calls)
     assert (service.directory / "inputs.tfvars.json").stat().st_mode & 0o777 == 0o600
+    if deployed:
+        with pytest.raises(ValueError, match="non-bootstrap"):
+            service.destroy(confirmed_environment="dev")
 
 
 @pytest.mark.parametrize("delete_recovery", [False, True])
@@ -296,6 +317,16 @@ def test_divergent_local_remote_state_refuses_overwrite(
 def test_recovery_rejects_foreign_resources(service: StateBackend, cloud: Cloud) -> None:
     cloud.exists = cloud.remote = True
     cloud.document["resources"][0]["instances"][0]["attributes"]["id"] = "wrong-group"
+    with pytest.raises(ValueError, match="does not match"):
+        service.destroy(confirmed_environment="dev")
+    assert not cloud.deleted and not cloud.locked
+
+
+def test_recovery_does_not_accept_legacy_container_url(service: StateBackend, cloud: Cloud) -> None:
+    cloud.exists = cloud.remote = True
+    container = cloud.document["resources"][2]["instances"][0]["attributes"]
+    container["resource_manager_id"] = container["id"]
+    container["id"] = "https://staiksdev0001.blob.core.windows.net/tfstate"
     with pytest.raises(ValueError, match="does not match"):
         service.destroy(confirmed_environment="dev")
     assert not cloud.deleted and not cloud.locked
