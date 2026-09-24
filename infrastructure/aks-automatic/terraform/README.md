@@ -1,7 +1,9 @@
 # Terraform foundation
 
 Implementation for [work item #8](https://github.com/toddysm/aiks/issues/8), pending
-live acceptance. The environment root declares the foundation; the separate
+live acceptance under [#11](https://github.com/toddysm/aiks/issues/11) and
+[#12](https://github.com/toddysm/aiks/issues/12), as approved on 2026-09-23.
+The environment root declares the foundation; the separate
 bootstrap root and `aiks state` commands manage its backend. Offline tests use
 mocked providers/processes. No live deployment or repeat-deployment evidence has
 been collected, and this implementation must not be treated as production-validated.
@@ -172,6 +174,10 @@ created through the management plane before granting the operator its container-
 data role. Its `id` is the management resource ID; `url` is the separate data endpoint,
 and the installed schema has no `resource_manager_id` attribute.
 
+The same locked AzureRM schema uses a nested `service_endpoint` block with a
+required `service` attribute on subnets; it has no `service_endpoints` list
+argument. Schema checks and development plan assertions cover both node subnets.
+
 AzAPI 2.12.0's installed `azapi_resource` schema declares both
 `response_export_values` and `replace_triggers_external_values` as dynamic.
 Mapped response exports are documented as alias-to-JMESPath queries, and replacement
@@ -200,7 +206,11 @@ terraform -chdir=infrastructure/aks-automatic/terraform/bootstrap providers sche
 Also run module profile tests, TFLint on each root/module, Trivy configuration
 scanning, and the Python test/lint/type suites. These tests do not establish
 live deployment/idempotence acceptance. The full foundation remains incomplete
-until operator-run evidence satisfies #8 and the lifecycle/evidence work in #11/#12.
+until operator-run evidence satisfies the lifecycle/evidence work in #11/#12.
+The user approved moving #8's live deployment, repeat-deployment, and backend
+lifecycle evidence to those items on 2026-09-23. This permits #8/PR #21 to merge
+after offline checks and review, but does not waive the evidence or authorize
+Azure deployment/deletion.
 
 ## Approved ownership exception
 

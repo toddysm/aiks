@@ -38,6 +38,13 @@ def test_pinned_provider_schema(root: str) -> None:
         assert container["storage_account_id"]["required"]
         assert "resource_manager_id" not in container
         assert container["url"]["computed"]
+        subnet = schemas["registry.terraform.io/hashicorp/azurerm"]["resource_schemas"][
+            "azurerm_subnet"
+        ]["block"]
+        assert "service_endpoints" not in subnet["attributes"]
+        endpoint = subnet["block_types"]["service_endpoint"]
+        assert endpoint["nesting_mode"] == "list"
+        assert endpoint["block"]["attributes"]["service"]["required"]
     else:
         resource = schemas["registry.terraform.io/azure/azapi"]["resource_schemas"][
             "azapi_resource"

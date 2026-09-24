@@ -38,6 +38,10 @@ run "development" {
     error_message = "Development must retain restricted RBAC vault access without production endpoints."
   }
   assert {
+    condition     = alltrue([for subnet in [azurerm_subnet.system, azurerm_subnet.user] : toset([for endpoint in subnet.service_endpoint : endpoint.service]) == toset(["Microsoft.ContainerRegistry", "Microsoft.KeyVault"])])
+    error_message = "Both development node subnets require registry and vault service endpoints."
+  }
+  assert {
     condition     = length(azurerm_role_assignment.cluster_admin) == 2 && azurerm_role_assignment.vault_reader.role_definition_name == "Key Vault Reader" && azurerm_role_assignment.pull.role_definition_name == "AcrPull"
     error_message = "Role bindings must match the Bicep contract."
   }

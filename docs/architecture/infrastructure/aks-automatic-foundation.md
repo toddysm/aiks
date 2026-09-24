@@ -406,7 +406,7 @@ Terraform constrains AzureRM to `>= 5.0.1, < 6.0.0`. AzureRM resources manage th
 
 On 2026-09-23 the user approved AzAPI ownership of the Automatic cluster and registry for #8. Installed AzureRM 5.6.0 omits initial pod/service network and DNS settings from the Automatic resource and subnet rules from the registry. Each resource has one AzAPI owner: cluster API `2026-04-01` and registry API `2026-03-01-preview` (the existing registry-only preview exception). The server-generated marker-key child remains AzAPI. Other supported resources remain AzureRM. See the [provider compatibility evidence](../../../infrastructure/aks-automatic/terraform/README.md).
 
-This replaces the original native-cluster ownership decision, not the shared configuration, security, output, or parity contract. Explicit payload validation and selected nonsecret response exports mitigate the loss of native field abstractions. A future move back to AzureRM requires verified schema parity and a reviewed state migration, not overlapping owners. The ownership exception does not authorize Azure deployment/deletion or waive #8's live repeated-deployment acceptance.
+This replaces the original native-cluster ownership decision, not the shared configuration, security, output, or parity contract. Explicit payload validation and selected nonsecret response exports mitigate the loss of native field abstractions. A future move back to AzureRM requires verified schema parity and a reviewed state migration, not overlapping owners. The ownership exception does not authorize Azure deployment/deletion or waive live repeated-deployment acceptance; the separately approved sequencing exception below assigns that evidence to #11/#12.
 
 Provider lock files are committed. CI runs `terraform fmt`, `terraform init -backend=false`, `terraform validate`, TFLint, and a security scanner.
 
@@ -580,6 +580,16 @@ requirements pass, without this live evidence. This exception changes sequencing
 only: the full foundation cannot be declared deployment-validated or complete
 until the required dev and private production-shaped lifecycles pass for both
 engines. Azure deployment and deletion still require separate authorization.
+
+On 2026-09-23, the user also approved moving issue #8's live validation to
+issues #11 and #12. Issue #11 must execute Terraform initial/repeated deployment,
+backend bootstrap/migration and updates with deployed environment state, permission
+propagation, recovery, lease refusal, protected cleanup, and resource/state
+convergence checks. Issue #12 must collect and audit the sanitized results,
+including the cross-engine monitoring/dashboard compatibility evidence. Issue #8
+and pull request #21 may merge once offline checks and review requirements pass.
+No live result is implied, no Azure operation is authorized by this deferral,
+and missing evidence continues to block completion of the full foundation #5.
 
 Verification captures ARM state, private DNS answers, TCP reachability, Kubernetes conditions, ACR image pull, Workload Identity, Prometheus target/sample discovery, DCR/DCRA associations, Grafana linkage, alert rules, redacted Terraform state shape, repeated plan/what-if output, Helm lifecycle, readiness timing, and post-destroy residuals.
 
