@@ -220,6 +220,46 @@ def test_aks_commands_require_explicit_context() -> None:
     assert result.exit_code == 1 and "explicit --kubeconfig" in result.output
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"kubeconfig":"output-private-sentinel"}',
+        '{"unexpected":"output-private-sentinel"}',
+        '{"environment":"output-private-sentinel"}',
+        "output-private-sentinel",
+    ],
+)
+def test_invalid_foundation_outputs_omit_input_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: str
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("invalid outputs must fail before runtime construction")
+
+    monkeypatch.setattr("aiks.cli.WorkloadRuntime", forbidden)
+    outputs = tmp_path / "outputs.json"
+    outputs.write_text(payload)
+    result_file = tmp_path / "result.json"
+    result = CliRunner().invoke(
+        cli,
+        [
+            "workload",
+            "verify",
+            "--config",
+            str(DEV),
+            "--target",
+            "aks",
+            "--outputs",
+            str(outputs),
+            "--json-output",
+            str(result_file),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "invalid configuration" in result.output
+    assert "output-private-sentinel" not in result.output + result_file.read_text()
+    assert not json.loads(result_file.read_text())["succeeded"]
+
+
 def test_invalid_configuration_redacts_click_error(tmp_path: Path) -> None:
     raw = yaml.safe_load(DEV.read_text())
     raw["spec"]["naming"]["prefix"] = "Bearer abc.def"
