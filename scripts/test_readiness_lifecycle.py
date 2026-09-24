@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import yaml
 
-from aiks.config import load_environment_config
+from aiks.config import ReadinessWorkload, load_environment_config
 
 
 def main() -> None:
@@ -22,8 +22,8 @@ def main() -> None:
     config.spec.local.kind_cluster_name = name
     config.spec.workload.timeout_seconds = 600
     config.spec.workload.image = f"aiks-readiness:{name}"
-    config.spec.workload.package_index_url = os.environ.get(
-        "AIKS_TEST_PACKAGE_INDEX", "https://pypi.org/simple"
+    config.spec.workload.package_index_url = ReadinessWorkload.validate_package_index(
+        os.environ.get("AIKS_TEST_PACKAGE_INDEX", "https://pypi.org/simple")
     )
     directory = root / ".aiks" / "integration" / name
     directory.mkdir(mode=0o700, parents=True)

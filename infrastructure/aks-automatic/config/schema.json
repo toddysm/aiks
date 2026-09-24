@@ -120,6 +120,7 @@
         },
         "nodeImage": {
           "default": "kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0",
+          "pattern": "^kindest/node:v\\d+\\.\\d+\\.\\d+@sha256:[a-f0-9]{64}$",
           "title": "Nodeimage",
           "type": "string"
         }

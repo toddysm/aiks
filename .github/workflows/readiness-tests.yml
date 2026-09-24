@@ -67,4 +67,4 @@ jobs:
           set -euo pipefail
           image="$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep '^aiks-readiness:aiks-test-9-' | head -1)"
           test -n "$image"
-          trivy image --db-repository ghcr.io/aquasecurity/trivy-db:2 --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 --timeout 5m "$image"
+          "$RUNNER_TEMP/trivy" image --db-repository ghcr.io/aquasecurity/trivy-db:2 --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 --timeout 5m "$image"

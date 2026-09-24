@@ -9,14 +9,32 @@ from pathlib import Path
 import pytest
 import yaml
 
-from aiks.config import load_environment_config
+from aiks.config import LocalKubernetes, ReadinessWorkload, load_environment_config
 from aiks.outputs import FoundationOutputs
 from aiks.process import CommandResult
-from aiks.workload import WorkloadRuntime, chart_path, conditions_ready
+from aiks.workload import WorkloadRuntime, chart_path, conditions_ready, gateway_services
 
 CONFIG = (
     Path(__file__).resolve().parents[1] / "infrastructure/aks-automatic/config/dev.example.yaml"
 )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://index.example.invalid",
+        "https://user:example@index.example.invalid",
+        "https://index.example.invalid?key=example",
+    ],
+)
+def test_package_index_rejects_credentials_and_insecure_transport(url: str) -> None:
+    with pytest.raises(ValueError, match="HTTPS index without credentials"):
+        ReadinessWorkload.validate_package_index(url)
+
+
+def test_kind_node_image_must_be_digest_pinned() -> None:
+    with pytest.raises(ValueError):
+        LocalKubernetes(node_image="kindest/node:latest")
 
 
 def test_local_values_and_chart() -> None:
@@ -154,12 +172,16 @@ class Tools:
             if "get" in command:
                 kind = command[command.index("get") + 1]
                 if kind == "services":
+                    assert "--all-namespaces" in command and "-l" not in command
                     internal_annotation = "service.beta.kubernetes.io/azure-load-balancer-internal"
                     result = {
                         "items": [
                             {
-                                "metadata": {"annotations": {internal_annotation: "true"}},
-                                "spec": {"type": "LoadBalancer"},
+                                "metadata": {
+                                    "namespace": "controller-system",
+                                    "annotations": {internal_annotation: "true"},
+                                },
+                                "spec": {"type": "LoadBalancer", "ports": [{"port": 80}]},
                                 "status": {"loadBalancer": {"ingress": [{"ip": self.address}]}},
                             }
                         ]
@@ -269,6 +291,25 @@ def test_invalid_image_and_revision_refused(
     monkeypatch.setattr(service, "_run", lambda *args: "not-an-image-id")
     with pytest.raises(ValueError, match="image identity"):
         service._image()
+
+
+def test_frontend_resolution_uses_status_and_ignores_unrelated_services() -> None:
+    gateway = {"metadata": {"uid": "gateway-uid"}, "status": {"addresses": [{"value": "10.1.2.3"}]}}
+    service = {
+        "metadata": {"namespace": "controller-system"},
+        "spec": {"type": "LoadBalancer", "ports": [{"port": 80}]},
+        "status": {"loadBalancer": {"ingress": [{"ip": "10.1.2.3"}]}},
+    }
+    unrelated = {
+        "spec": {"type": "LoadBalancer", "ports": [{"port": 80}]},
+        "status": {"loadBalancer": {"ingress": [{"ip": "8.8.8.8"}]}},
+    }
+    assert gateway_services(gateway, [unrelated, service]) == [service]
+    with pytest.raises(ValueError, match="could not be verified"):
+        gateway_services(gateway, [unrelated])
+    gateway["status"]["addresses"].append({"value": "10.1.2.4"})
+    with pytest.raises(ValueError, match="could not be verified"):
+        gateway_services(gateway, [service])
 
 
 def foundation(environment: str = "dev") -> FoundationOutputs:

@@ -226,9 +226,12 @@ class LocalKubernetes(StrictModel):
     kind_cluster_name: str = Field(
         default="aiks-readiness", min_length=1, max_length=63, pattern=r"^[a-z][a-z0-9-]*$"
     )
-    node_image: str = (
-        "kindest/node:v1.35.8@sha256:"
-        "07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0"
+    node_image: str = Field(
+        default=(
+            "kindest/node:v1.35.8@sha256:"
+            "07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0"
+        ),
+        pattern=r"^kindest/node:v\d+\.\d+\.\d+@sha256:[a-f0-9]{64}$",
     )
     gateway_chart_version: str = Field(default="v1.9.1", pattern=r"^v\d+\.\d+\.\d+$")
 

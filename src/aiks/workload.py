@@ -57,6 +57,39 @@ def conditions_ready(
     )
 
 
+def gateway_services(
+    gateway: dict[str, Any], services: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Resolve frontends from controller-reported addresses, not naming conventions."""
+    addresses = {
+        str(ip_address(entry["value"])) for entry in gateway.get("status", {}).get("addresses", [])
+    }
+    uid = gateway.get("metadata", {}).get("uid")
+    matches = []
+    covered: set[str] = set()
+    for service in services:
+        spec = service.get("spec", {})
+        if spec.get("type") != "LoadBalancer" or not any(
+            port.get("port") == 80 for port in spec.get("ports", [])
+        ):
+            continue
+        frontends = {
+            str(ip_address(entry["ip"]))
+            for entry in service.get("status", {}).get("loadBalancer", {}).get("ingress", [])
+            if "ip" in entry
+        }
+        owned = bool(uid) and any(
+            reference.get("uid") == uid
+            for reference in service.get("metadata", {}).get("ownerReferences", [])
+        )
+        if owned or addresses.intersection(frontends):
+            matches.append(service)
+            covered.update(addresses.intersection(frontends))
+    if not addresses or covered != addresses or not matches:
+        raise ValueError("production Gateway service could not be verified")
+    return matches
+
+
 class WorkloadRuntime:
     def __init__(
         self,
@@ -501,20 +534,16 @@ class WorkloadRuntime:
         ):
             raise ValueError("production Gateway exposes a public address")
         if self.target == "aks" and self.config.spec.environment == "production":
-            services = json.loads(
+            inventory = json.loads(
                 self._kubectl(
                     "get",
                     "services",
-                    "-n",
-                    NAMESPACE,
-                    "-l",
-                    "gateway.networking.k8s.io/gateway-name=readiness",
+                    "--all-namespaces",
                     "-o",
                     "json",
                 )
             ).get("items", [])
-            if not services:
-                raise ValueError("production Gateway service could not be verified")
+            services = gateway_services(gateway, inventory)
             for service in services:
                 annotations = service.get("metadata", {}).get("annotations", {})
                 frontend = service.get("status", {}).get("loadBalancer", {}).get("ingress", [])

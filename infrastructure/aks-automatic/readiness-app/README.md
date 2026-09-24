@@ -86,7 +86,7 @@ The Helm release record lives in `aiks-system`; workload resources live in
 Use an already provisioned cluster and the normalized `result` output from either
 infrastructure engine. Obtain an Entra-backed kubeconfig through your authorized
 operator workflow; #11 will integrate that step. Every AKS command requires explicit
-files/context and checks the kubeconfig server against the foundation cluster name:
+files/context and checks the kubeconfig server against the foundation cluster endpoint:
 
 ```sh
 aiks workload install --config .aiks/dev.yaml --target aks \
@@ -107,7 +107,10 @@ AKS uses `approuting-istio` without enabling a service mesh. Production uses the
 Gateway infrastructure annotation for an internal Azure LoadBalancer. Verification
 requires current Accepted/Programmed/ResolvedRefs conditions, an assigned address,
 HTTP success through the route, and identity/metrics success. Production also checks
-the generated Service's internal annotation and private frontend addresses. Azure
+the generated Service's internal annotation and private frontend addresses. Services
+are resolved across namespaces from Gateway ownership or assigned addresses and
+the listener port, not an assumed controller label or Service name. Every Gateway
+address must have a matching frontend. Azure
 control-plane verification of frontend bindings remains part of #11. The operator
 must have the required private network and DNS access before attempting verification.
 
