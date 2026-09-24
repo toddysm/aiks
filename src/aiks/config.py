@@ -226,6 +226,41 @@ class LocalKubernetes(StrictModel):
     kind_cluster_name: str = Field(
         default="aiks-readiness", min_length=1, max_length=63, pattern=r"^[a-z][a-z0-9-]*$"
     )
+    node_image: str = Field(
+        default=(
+            "kindest/node:v1.35.8@sha256:"
+            "07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0"
+        ),
+        pattern=r"^kindest/node:v\d+\.\d+\.\d+@sha256:[a-f0-9]{64}$",
+    )
+    gateway_chart_version: str = Field(default="v1.9.1", pattern=r"^v\d+\.\d+\.\d+$")
+
+
+class ReadinessWorkload(StrictModel):
+    """Nonsecret workload and local image-build settings."""
+
+    image: str = Field(default="aiks-readiness:local", pattern=r"^[a-z0-9][a-zA-Z0-9./:@_-]*$")
+    replicas: int | None = Field(default=None, ge=1, le=20)
+    ready: bool = True
+    timeout_seconds: int = Field(default=300, ge=30, le=1800)
+    package_index_url: str = "https://pypi.org/simple"
+
+    @field_validator("package_index_url")
+    @classmethod
+    def validate_package_index(cls, value: str) -> str:
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("packageIndexUrl must be an HTTPS index without credentials or query")
+        return value
 
 
 class EnvironmentSpec(StrictModel):
@@ -239,6 +274,7 @@ class EnvironmentSpec(StrictModel):
     observability: Observability
     terraform: TerraformState
     local: LocalKubernetes = Field(default_factory=LocalKubernetes)
+    workload: ReadinessWorkload = Field(default_factory=ReadinessWorkload)
     tags: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")

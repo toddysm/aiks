@@ -86,6 +86,10 @@ jobs:
           Dir.glob("**/*", File::FNM_DOTMATCH).sort.each do |path|
             next unless File.file?(path)
             next if path.start_with?(".git/")
+            if path.start_with?("infrastructure/aks-automatic/charts/readiness/templates/")
+              puts "Validated after Helm rendering in readiness-tests.yml: #{path}"
+              next
+            end
 
             extension = File.extname(path).downcase
             next unless [".json", ".yml", ".yaml"].include?(extension)

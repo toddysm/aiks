@@ -1,0 +1,38 @@
+target: kind
+environment: dev
+cluster: local
+namespace: aiks-readiness
+replicas: 1
+ready: true
+image:
+  repository: aiks-readiness
+  tag: local
+  digest: ""
+  pullPolicy: IfNotPresent
+service:
+  port: 8080
+gateway:
+  className: eg
+  internal: false
+identity:
+  clientId: ""
+  tenantId: ""
+  vaultUri: ""
+  markerKeyName: readiness-marker
+monitoring:
+  enabled: false
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  cpuUtilization: 70

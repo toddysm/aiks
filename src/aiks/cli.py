@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from time import perf_counter
-from typing import NoReturn
+from typing import Literal, NoReturn, cast
 
 import click
 from pydantic import ValidationError
@@ -13,9 +13,11 @@ from pydantic import ValidationError
 from aiks import __version__
 from aiks.config import EnvironmentConfig, load_environment_config, write_schema
 from aiks.logging import configure_logging
+from aiks.outputs import FoundationOutputs
 from aiks.redaction import redact_text
 from aiks.results import OperationResult
 from aiks.state import StateBackend
+from aiks.workload import NAMESPACE, WorkloadRuntime
 
 LOGGER = logging.getLogger(__name__)
 ENGINE = click.Choice(("bicep", "terraform"), case_sensitive=False)
@@ -272,16 +274,102 @@ def local() -> None:
     """Manage the local kind validation cluster."""
 
 
-def _register_local_placeholder(name: str) -> None:
+def _lifecycle_operation(
+    config: EnvironmentConfig,
+    operation: str,
+    target: str,
+    json_output: Path | None,
+    *,
+    kubeconfig: Path | None = None,
+    context: str | None = None,
+    outputs: Path | None = None,
+    revision: int = 0,
+    allow_production_change: bool = False,
+) -> None:
+    started = perf_counter()
+    group = "local" if operation in {"create", "delete"} else "workload"
+    try:
+        foundation = FoundationOutputs.model_validate_json(outputs.read_text()) if outputs else None
+        runtime = WorkloadRuntime(
+            config,
+            cast(Literal["kind", "aks"], target),
+            kubeconfig=kubeconfig,
+            context=context,
+            outputs=foundation,
+        )
+        if target == "aks" and operation not in {"verify", "build"}:
+            if config.spec.environment == "production" and not allow_production_change:
+                raise ValueError("production workload changes require --allow-production-change")
+            click.echo(
+                f"AKS cluster: {foundation.cluster.name if foundation else ''}; context: {context}"
+            )
+            if (
+                click.prompt("Type the environment to confirm the workload change")
+                != config.spec.environment
+            ):
+                raise ValueError("environment confirmation did not match")
+        if (
+            operation == "delete"
+            and click.prompt("Type the kind cluster name to confirm deletion")
+            != config.spec.local.kind_cluster_name
+        ):
+            raise ValueError("cluster confirmation did not match")
+        if (
+            operation == "uninstall"
+            and click.prompt("Type the workload namespace to confirm removal") != NAMESPACE
+        ):
+            raise ValueError("namespace confirmation did not match")
+        if operation == "create":
+            data = runtime.create_local()
+        elif operation == "delete":
+            data = runtime.delete_local()
+        elif operation == "build":
+            data = runtime.build()
+        elif operation in {"install", "upgrade"}:
+            data = runtime.install(upgrade=operation == "upgrade")
+        elif operation == "rollback":
+            data = runtime.rollback(revision)
+        elif operation == "uninstall":
+            data = runtime.uninstall()
+        else:
+            data = runtime.verify()
+    except (ValueError, OSError) as error:
+        message = _validation_message(error) if isinstance(error, ValidationError) else str(error)
+        message = redact_text(message)
+        result = OperationResult(
+            operation=f"{group}.{operation}",
+            phase="workload",
+            succeeded=False,
+            duration_seconds=perf_counter() - started,
+            context={"target": target, "environment": config.spec.environment, "error": message},
+        )
+        result.log()
+        if json_output:
+            result.write_json(json_output)
+        raise click.ClickException(message) from error
+    result = OperationResult(
+        operation=f"{group}.{operation}",
+        phase="workload",
+        succeeded=True,
+        duration_seconds=perf_counter() - started,
+        context=data,
+    )
+    result.log()
+    result.render()
+    if json_output:
+        result.write_json(json_output)
+
+
+def _register_local_command(name: str) -> None:
     @local.command(name)
     @CONFIG_OPTION
-    def command(config_path: Path) -> None:
-        _load(config_path)
-        _pending(9)
+    @click.option("--json-output", type=click.Path(dir_okay=False, path_type=Path))
+    def command(config_path: Path, json_output: Path | None) -> None:
+        _lifecycle_operation(_load(config_path), name, "kind", json_output)
 
 
-_register_local_placeholder("create")
-_register_local_placeholder("delete")
+_register_local_command("create")
+_register_local_command("delete")
 
 
 @cli.group()
@@ -289,18 +377,41 @@ def workload() -> None:
     """Manage the readiness Helm release."""
 
 
-def _register_workload_placeholder(name: str) -> None:
+def _register_workload_command(name: str) -> None:
     @workload.command(name)
     @CONFIG_OPTION
     @TARGET_OPTION
-    def command(config_path: Path, target: str) -> None:
-        _load(config_path)
-        del target
-        _pending(9)
+    @click.option("--kubeconfig", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+    @click.option("--context")
+    @click.option("--outputs", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+    @click.option("--revision", type=click.IntRange(min=0), default=0)
+    @click.option("--allow-production-change", is_flag=True)
+    @click.option("--json-output", type=click.Path(dir_okay=False, path_type=Path))
+    def command(
+        config_path: Path,
+        target: str,
+        kubeconfig: Path | None,
+        context: str | None,
+        outputs: Path | None,
+        revision: int,
+        allow_production_change: bool,
+        json_output: Path | None,
+    ) -> None:
+        _lifecycle_operation(
+            _load(config_path),
+            name,
+            target,
+            json_output,
+            kubeconfig=kubeconfig,
+            context=context,
+            outputs=outputs,
+            revision=revision,
+            allow_production_change=allow_production_change,
+        )
 
 
-for _name in ("install", "verify", "upgrade", "rollback", "uninstall"):
-    _register_workload_placeholder(_name)
+for _name in ("build", "install", "verify", "upgrade", "rollback", "uninstall"):
+    _register_workload_command(_name)
 
 
 if __name__ == "__main__":

@@ -162,13 +162,7 @@ def test_all_later_issue_commands_are_visible_and_explicitly_pending() -> None:
         (["infra", "plan", "--config", str(DEV), "--engine", "bicep"], "#11"),
         (["infra", "deploy", "--config", str(DEV), "--engine", "terraform"], "#11"),
         (["infra", "verify", "--config", str(DEV)], "#11"),
-        (["local", "create", "--config", str(DEV)], "#9"),
-        (["local", "delete", "--config", str(DEV)], "#9"),
     ]
-    for operation in ("install", "verify", "upgrade", "rollback", "uninstall"):
-        invocations.append(
-            (["workload", operation, "--config", str(DEV), "--target", "kind"], "#9")
-        )
 
     for arguments, issue in invocations:
         result = CliRunner().invoke(cli, arguments)
@@ -182,6 +176,88 @@ def test_schema_command_writes_schema(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert json.loads(output.read_text())["title"] == "EnvironmentConfig"
+
+
+@pytest.mark.parametrize(
+    "operation", ["build", "install", "verify", "upgrade", "rollback", "uninstall"]
+)
+def test_workload_cli_dispatch(
+    operation: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class Runtime:
+        def __getattr__(self, name: str) -> object:
+            return lambda *args, **kwargs: {"operation": name}
+
+    monkeypatch.setattr("aiks.cli.WorkloadRuntime", lambda *args, **kwargs: Runtime())
+    output = tmp_path / "result.json"
+    result = CliRunner().invoke(
+        cli,
+        [
+            "workload",
+            operation,
+            "--config",
+            str(DEV),
+            "--target",
+            "kind",
+            "--json-output",
+            str(output),
+        ],
+        input="aiks-readiness\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(output.read_text())["succeeded"]
+
+
+def test_local_delete_requires_matching_name() -> None:
+    result = CliRunner().invoke(cli, ["local", "delete", "--config", str(DEV)], input="wrong\n")
+    assert result.exit_code == 1 and "confirmation did not match" in result.output
+
+
+def test_aks_commands_require_explicit_context() -> None:
+    result = CliRunner().invoke(
+        cli, ["workload", "verify", "--config", str(DEV), "--target", "aks"]
+    )
+    assert result.exit_code == 1 and "explicit --kubeconfig" in result.output
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"kubeconfig":"output-private-sentinel"}',
+        '{"unexpected":"output-private-sentinel"}',
+        '{"environment":"output-private-sentinel"}',
+        "output-private-sentinel",
+    ],
+)
+def test_invalid_foundation_outputs_omit_input_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: str
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("invalid outputs must fail before runtime construction")
+
+    monkeypatch.setattr("aiks.cli.WorkloadRuntime", forbidden)
+    outputs = tmp_path / "outputs.json"
+    outputs.write_text(payload)
+    result_file = tmp_path / "result.json"
+    result = CliRunner().invoke(
+        cli,
+        [
+            "workload",
+            "verify",
+            "--config",
+            str(DEV),
+            "--target",
+            "aks",
+            "--outputs",
+            str(outputs),
+            "--json-output",
+            str(result_file),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "invalid configuration" in result.output
+    assert "output-private-sentinel" not in result.output + result_file.read_text()
+    assert not json.loads(result_file.read_text())["succeeded"]
 
 
 def test_invalid_configuration_redacts_click_error(tmp_path: Path) -> None:

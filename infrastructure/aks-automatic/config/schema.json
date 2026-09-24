@@ -68,6 +68,9 @@
         },
         "terraform": {
           "$ref": "#/$defs/TerraformState"
+        },
+        "workload": {
+          "$ref": "#/$defs/ReadinessWorkload"
         }
       },
       "required": [
@@ -101,12 +104,24 @@
       "additionalProperties": false,
       "description": "Local kind target configuration.",
       "properties": {
+        "gatewayChartVersion": {
+          "default": "v1.9.1",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$",
+          "title": "Gatewaychartversion",
+          "type": "string"
+        },
         "kindClusterName": {
           "default": "aiks-readiness",
           "maxLength": 63,
           "minLength": 1,
           "pattern": "^[a-z][a-z0-9-]*$",
           "title": "Kindclustername",
+          "type": "string"
+        },
+        "nodeImage": {
+          "default": "kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0",
+          "pattern": "^kindest/node:v\\d+\\.\\d+\\.\\d+@sha256:[a-f0-9]{64}$",
+          "title": "Nodeimage",
           "type": "string"
         }
       },
@@ -257,6 +272,51 @@
         }
       },
       "title": "Observability",
+      "type": "object"
+    },
+    "ReadinessWorkload": {
+      "additionalProperties": false,
+      "description": "Nonsecret workload and local image-build settings.",
+      "properties": {
+        "image": {
+          "default": "aiks-readiness:local",
+          "pattern": "^[a-z0-9][a-zA-Z0-9./:@_-]*$",
+          "title": "Image",
+          "type": "string"
+        },
+        "packageIndexUrl": {
+          "default": "https://pypi.org/simple",
+          "title": "Packageindexurl",
+          "type": "string"
+        },
+        "ready": {
+          "default": true,
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "replicas": {
+          "anyOf": [
+            {
+              "maximum": 20,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replicas"
+        },
+        "timeoutSeconds": {
+          "default": 300,
+          "maximum": 1800,
+          "minimum": 30,
+          "title": "Timeoutseconds",
+          "type": "integer"
+        }
+      },
+      "title": "ReadinessWorkload",
       "type": "object"
     },
     "TerraformState": {

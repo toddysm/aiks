@@ -10,7 +10,7 @@ Use Python 3.12 or later in an isolated virtual environment:
 
 ```bash
 python3.12 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pip install -e '.[dev,readiness]'
 .venv/bin/aiks --help
 ```
 
@@ -24,6 +24,11 @@ The CLI uses Click and provides these command groups:
 
 Commands owned by later implementation issues are visible but fail with the GitHub issue that
 tracks their implementation. They never report a deployment as successful before it exists.
+
+The readiness service, shared Helm chart, local kind lifecycle, and workload commands
+are documented in the [readiness operator guide](readiness-app/README.md). Local
+deployment is tested; live AKS validation remains under #11/#12. The infrastructure
+deployment commands themselves remain placeholders until #11.
 
 ## Configuration
 
