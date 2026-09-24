@@ -48,3 +48,26 @@ def test_unsafe_workflow_fails(mutation):
         workflow["jobs"]["test"]["steps"] = [{"run": "terraform -chdir=example apply"}]
     with pytest.raises(ValueError):
         CHECKS["workflow_policy"](workflow)
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        {"uses": "owner/repo/.github/workflows/check.yml@main"},
+        {"steps": [{"uses": "azure/cli@v2"}]},
+        {"steps": [{"uses": "azure/azure-powershell@v2"}]},
+        {"steps": [{"run": "az group create --name test --location westus3"}]},
+        {"steps": [{"run": "az resource create --name test"}]},
+        {"steps": [{"run": "azd up"}]},
+        {"steps": [{"run": "New-AzResourceGroup -Name test"}]},
+    ],
+)
+def test_reusable_and_cloud_execution_are_rejected(job):
+    workflow = {
+        "on": {"pull_request": {}},
+        "permissions": {"contents": "read"},
+        "concurrency": {"group": "test", "cancel-in-progress": True},
+        "jobs": {"test": job},
+    }
+    with pytest.raises(ValueError):
+        CHECKS["workflow_policy"](workflow)

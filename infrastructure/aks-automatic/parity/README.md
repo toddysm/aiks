@@ -108,7 +108,9 @@ The structured-data checker skips only raw Helm templates, which are validated
 after rendering by the readiness workflow. It rejects duplicate keys and checks
 declared JSON Schemas. Workflow checks reject privileged pull-request triggers,
 unexpected write permissions, unpinned actions, and explicit cloud deployment
-commands. These checks are regression guards, not a sandbox against arbitrary
+commands. Job-level reusable workflows are rejected until explicitly covered by
+reviewed policy. Azure execution actions, `az`/`azd` commands, and Azure PowerShell
+commands are prohibited in these static workflows. These checks are regression guards, not a sandbox against arbitrary
 code execution by a malicious workflow change; code review remains required.
 
 ## Updating the Contract

@@ -50,6 +50,8 @@ def workflow_policy(document: dict[str, Any]) -> None:
     if "pull_request_target" in triggers:
         raise ValueError("privileged pull request execution is prohibited")
     for name, job in document["jobs"].items():
+        if "uses" in job:
+            raise ValueError("reusable workflows require an explicit reviewed policy")
         permissions = job.get("permissions", {})
         allowed = {
             "contents": "read",
@@ -79,10 +81,10 @@ def workflow_policy(document: dict[str, Any]) -> None:
                     raise ValueError("action owner/name or release major is not supported")
             command = step.get("run", "")
             if re.search(
-                r"\baz\s+(?:login|deployment|group\s+delete)|\bterraform\s+(?:-chdir=\S+\s+)?(?:apply|destroy)\b",
+                r"\b(?:az|azd)(?:\s|$)|\b[A-Za-z]+-Az[A-Za-z]+\b|\bterraform\s+(?:-chdir=\S+\s+)?(?:apply|destroy)\b",
                 command,
             ):
-                raise ValueError("static workflow must not deploy or delete Azure resources")
+                raise ValueError("static workflow must not execute Azure commands or deployments")
 
 
 def validate_file(path: Path) -> None:
