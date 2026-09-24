@@ -1,3 +1,10 @@
+# Terraform working directories, state, and saved plans
+.aiks/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

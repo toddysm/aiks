@@ -178,6 +178,32 @@ class TerraformState(StrictModel):
     state_resource_group: str
     state_storage_account: str
     state_container: str = Field(min_length=3, max_length=63, pattern=r"^[a-z0-9-]+$")
+    allowed_ip_ranges: list[str] = Field(default_factory=list)
+    allowed_subnet_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("allowed_ip_ranges")
+    @classmethod
+    def validate_state_ranges(cls, values: list[str]) -> list[str]:
+        return Network.validate_allowed_ranges(values)
+
+    @field_validator("allowed_subnet_ids")
+    @classmethod
+    def validate_state_subnets(cls, values: list[str]) -> list[str]:
+        for value in values:
+            if not re.fullmatch(
+                r"/subscriptions/[0-9a-fA-F-]{36}/resourceGroups/[^/]+/providers/"
+                r"Microsoft.Network/virtualNetworks/[^/]+/subnets/[^/]+",
+                value,
+            ):
+                raise ValueError("allowedSubnetIds must contain full Azure subnet resource IDs")
+        return values
+
+    @field_validator("state_container")
+    @classmethod
+    def validate_container(cls, value: str) -> str:
+        if value.startswith("-") or value.endswith("-") or "--" in value:
+            raise ValueError("stateContainer must not have leading, trailing, or repeated hyphens")
+        return value
 
     @field_validator("state_resource_group")
     @classmethod

@@ -1,0 +1,8 @@
+misconfigurations:
+  - id: AZU-0010
+    paths:
+      - "bootstrap/main.tf"
+    statement: >-
+      The Terraform backend is accessed by the operator through explicit IP/subnet
+      rules with Entra authentication. No Microsoft service needs a network bypass.
+      Enabling AzureServices would broaden the accepted deny-by-default access model.

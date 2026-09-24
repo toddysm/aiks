@@ -15,6 +15,7 @@ from aiks.config import EnvironmentConfig, load_environment_config, write_schema
 from aiks.logging import configure_logging
 from aiks.redaction import redact_text
 from aiks.results import OperationResult
+from aiks.state import StateBackend
 
 LOGGER = logging.getLogger(__name__)
 ENGINE = click.Choice(("bicep", "terraform"), case_sensitive=False)
@@ -170,27 +171,100 @@ def state() -> None:
     """Manage the Terraform Azure Storage backend."""
 
 
-def _register_state_placeholder(name: str) -> None:
-    @state.command(name)
-    @CONFIG_OPTION
-    def command(config_path: Path) -> None:
-        _load(config_path)
-        _pending(8)
+def _state_operation(
+    config: EnvironmentConfig,
+    operation: str,
+    json_output: Path | None,
+    *,
+    allow_production: bool = False,
+    delete_recovery: bool = False,
+) -> None:
+    started = perf_counter()
+    try:
+        service = StateBackend(config)
+        if operation != "status":
+            click.echo(
+                f"Subscription: {service.subscription}; "
+                f"state group: {config.spec.terraform.state_resource_group}"
+            )
+        if operation == "bootstrap":
+            click.confirm("Create or update this Terraform backend?", abort=True)
+            data = service.bootstrap()
+        elif operation == "destroy":
+            group = click.prompt("Type the state resource group to confirm backend deletion")
+            if group != config.spec.terraform.state_resource_group:
+                raise ValueError("backend group confirmation did not match")
+            data = service.destroy(
+                confirmed_environment=config.spec.environment,
+                allow_production=allow_production,
+                delete_recovery=delete_recovery,
+            )
+        else:
+            data = service.status()
+    except (ValueError, OSError) as error:
+        message = redact_text(str(error))
+        failure = OperationResult(
+            operation=f"state.{operation}",
+            phase="backend",
+            succeeded=False,
+            duration_seconds=perf_counter() - started,
+            context={"environment": config.spec.environment, "error": message},
+        )
+        failure.log()
+        if json_output:
+            failure.write_json(json_output)
+        raise click.ClickException(message) from error
+    result = OperationResult(
+        operation=f"state.{operation}",
+        phase="backend",
+        succeeded=True,
+        duration_seconds=perf_counter() - started,
+        context=data,
+    )
+    result.log()
+    result.render()
+    if json_output:
+        result.write_json(json_output)
 
 
-_register_state_placeholder("bootstrap")
-_register_state_placeholder("status")
+@state.command("bootstrap")
+@CONFIG_OPTION
+@click.option("--json-output", type=click.Path(dir_okay=False, path_type=Path))
+def state_bootstrap(config_path: Path, json_output: Path | None) -> None:
+    """Create the restricted backend and migrate its bootstrap state."""
+    _state_operation(_load(config_path), "bootstrap", json_output)
+
+
+@state.command("status")
+@CONFIG_OPTION
+@click.option("--json-output", type=click.Path(dir_okay=False, path_type=Path))
+def state_status(config_path: Path, json_output: Path | None) -> None:
+    """Inspect backend ownership, state keys, and leases without mutation."""
+    _state_operation(_load(config_path), "status", json_output)
 
 
 @state.command("destroy")
 @CONFIG_OPTION
 @click.option("--allow-production-destroy", is_flag=True)
-def state_destroy(config_path: Path, allow_production_destroy: bool) -> None:
+@click.option("--delete-recovery-copy", is_flag=True)
+@click.option("--json-output", type=click.Path(dir_okay=False, path_type=Path))
+def state_destroy(
+    config_path: Path,
+    allow_production_destroy: bool,
+    delete_recovery_copy: bool,
+    json_output: Path | None,
+) -> None:
     """Delete an unused Terraform backend with explicit safeguards."""
 
     config = _load(config_path)
     _confirm_destroy(config, allow_production_destroy)
-    _pending(8)
+    _state_operation(
+        config,
+        "destroy",
+        json_output,
+        allow_production=allow_production_destroy,
+        delete_recovery=delete_recovery_copy,
+    )
 
 
 @cli.group()

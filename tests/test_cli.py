@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 from click.testing import CliRunner
 
@@ -67,6 +68,42 @@ def test_pending_command_fails_clearly() -> None:
     assert "tracked by GitHub issue #11" in result.output
 
 
+@pytest.mark.parametrize("operation", ["bootstrap", "status"])
+def test_state_commands_write_results(
+    operation: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class Backend:
+        subscription = "test-subscription"
+
+        def bootstrap(self) -> dict[str, str]:
+            return {"phase": "remote-state-verified"}
+
+        def status(self) -> dict[str, str]:
+            return {"phase": "inspected"}
+
+    monkeypatch.setattr("aiks.cli.StateBackend", lambda config: Backend())
+    output = tmp_path / "result.json"
+    result = CliRunner().invoke(
+        cli, ["state", operation, "--config", str(DEV), "--json-output", str(output)], input="y\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(output.read_text())["succeeded"]
+
+
+def test_state_failure_result_is_redacted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def fail(config: object) -> None:
+        raise ValueError("Bearer private-token")
+
+    monkeypatch.setattr("aiks.cli.StateBackend", fail)
+    output = tmp_path / "failure.json"
+    result = CliRunner().invoke(
+        cli, ["state", "status", "--config", str(DEV), "--json-output", str(output)]
+    )
+    assert result.exit_code == 1
+    assert "private-token" not in result.output + output.read_text()
+    assert not json.loads(output.read_text())["succeeded"]
+
+
 def test_production_destroy_requires_override() -> None:
     result = CliRunner().invoke(
         cli, ["infra", "destroy", "--config", str(PROD), "--engine", "bicep"]
@@ -98,15 +135,26 @@ def test_confirmed_dev_destroy_reaches_tracked_placeholder() -> None:
     assert "tracked by GitHub issue #11" in result.output
 
 
-def test_confirmed_production_state_destroy_reaches_tracked_placeholder() -> None:
+def test_confirmed_production_state_destroy_reaches_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Backend:
+        subscription = "test-subscription"
+
+        def destroy(self, **kwargs: object) -> dict[str, bool]:
+            assert kwargs["confirmed_environment"] == "production"
+            assert kwargs["allow_production"] is True
+            return {"backendDeleted": True}
+
+    monkeypatch.setattr("aiks.cli.StateBackend", lambda config: Backend())
     result = CliRunner().invoke(
         cli,
         ["state", "destroy", "--config", str(PROD), "--allow-production-destroy"],
-        input="production\n",
+        input="production\naiks-tfstate-prod\n",
     )
 
-    assert result.exit_code == 1
-    assert "tracked by GitHub issue #8" in result.output
+    assert result.exit_code == 0
+    assert "backendDeleted" in result.output
 
 
 def test_all_later_issue_commands_are_visible_and_explicitly_pending() -> None:
@@ -114,8 +162,6 @@ def test_all_later_issue_commands_are_visible_and_explicitly_pending() -> None:
         (["infra", "plan", "--config", str(DEV), "--engine", "bicep"], "#11"),
         (["infra", "deploy", "--config", str(DEV), "--engine", "terraform"], "#11"),
         (["infra", "verify", "--config", str(DEV)], "#11"),
-        (["state", "bootstrap", "--config", str(DEV)], "#8"),
-        (["state", "status", "--config", str(DEV)], "#8"),
         (["local", "create", "--config", str(DEV)], "#9"),
         (["local", "delete", "--config", str(DEV)], "#9"),
     ]

@@ -263,6 +263,20 @@
       "additionalProperties": false,
       "description": "Terraform backend names; authentication always comes from Microsoft Entra ID.",
       "properties": {
+        "allowedIpRanges": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowedipranges",
+          "type": "array"
+        },
+        "allowedSubnetIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowedsubnetids",
+          "type": "array"
+        },
         "stateContainer": {
           "maxLength": 63,
           "minLength": 3,

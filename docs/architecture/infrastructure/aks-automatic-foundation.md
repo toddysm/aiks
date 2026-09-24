@@ -362,28 +362,28 @@ Both engines produce a JSON object with the same keys:
 - Log Analytics, Azure Monitor workspace, and Grafana resource IDs/endpoints when enabled
 - nonsecret readiness configuration
 
-Kubeconfig, tokens, certificates, storage keys, and Key Vault values are never declared IaC outputs. The CLI obtains a short-lived Entra-backed kubeconfig with `az aks get-credentials` only when required. Because the AzureRM Automatic resource exposes computed kubeconfig-shaped fields, operator validation inspects a redacted `terraform show -json`; the entire backend is treated as sensitive even though no static Kubernetes credential is supplied by configuration.
+Kubeconfig, tokens, certificates, storage keys, and Key Vault values are never declared IaC outputs. The CLI obtains a short-lived Entra-backed kubeconfig with `az aks get-credentials` only when required. AzAPI exports only selected nonsecret cluster fields, never credentials or the complete response. Operator validation inspects a redacted `terraform show -json`; the entire backend is treated as sensitive even though no static Kubernetes credential is supplied by configuration.
 
 ### AKS capability and parity contract
 
 | Capability | Bicep/ARM owner | Terraform owner | Required assertion |
 | --- | --- | --- | --- |
-| Automatic SKU | `sku.name: Automatic` | `azurerm_kubernetes_automatic_cluster` | SKU is Automatic |
-| Hosted system nodes and NAP | `hostedSystemProfile` and Automatic defaults | `hosted_system` and Automatic defaults | user/system subnet IDs match; node provisioning mode is Auto |
-| API server VNet integration | `apiServerAccessProfile.subnetId` | `api_server_access.subnet_id` | API endpoint uses delegated subnet |
-| Production private API | private-cluster profile and custom DNS zone | `private_cluster` | no public FQDN; private FQDN resolves privately |
-| Dev API restriction | authorized IP ranges | `api_server_access.authorized_ip_ranges` | no unrestricted source range |
+| Automatic SKU | `sku.name: Automatic` | AzAPI cluster `sku.name: Automatic` | SKU is Automatic |
+| Hosted system nodes and NAP | `hostedSystemProfile` and Automatic defaults | AzAPI `hostedSystemProfile` and node provisioning profile | user/system subnet IDs match; node provisioning mode is Auto |
+| API server VNet integration | `apiServerAccessProfile.subnetId` | AzAPI `apiServerAccessProfile.subnetId` | API endpoint uses delegated subnet |
+| Production private API | private-cluster profile and custom DNS zone | AzAPI private-cluster profile | no public FQDN; private FQDN resolves privately |
+| Dev API restriction | authorized IP ranges | AzAPI authorized IP ranges | no unrestricted source range |
 | Azure CNI Overlay/Cilium | Automatic service profile | Automatic service profile | ARM network plugin/mode/data plane equal Azure/overlay/Cilium |
 | OIDC and Workload Identity | Automatic service profile | Automatic service profile | issuer exists and workload identity is enabled |
 | Azure RBAC/local accounts | Automatic service profile plus role assignments | Automatic service profile plus role assignments | Azure RBAC enabled; local accounts disabled; expected roles only |
 | Policy safeguards | Automatic service profile | Automatic service profile | Azure Policy and deployment safeguards are enforced |
 | Stable upgrades and node image updates | Automatic service profile | Automatic service profile | expected upgrade profiles remain enabled |
-| Managed Gateway API CRDs | managed Gateway API installation profile | narrow AzAPI update if AzureRM lacks the profile | Gateway API CRDs are managed and established |
-| Application-routing Gateway API | application-routing Istio profile | `web_app_routing_ingress.istio_enabled` when exposed by the pinned AzureRM schema; otherwise the narrow AzAPI profile update | `approuting-istio` exists; service-mesh profile is absent |
-| Container Insights | `addonProfiles.omsagent` plus DCR/DCRA | narrow AzAPI update plus DCR/DCRA | custom LAW association is active; no unexpected default LAW |
-| Managed Prometheus | `azureMonitorProfile.metrics` plus DCR/DCRA | narrow AzAPI update plus DCR/DCRA | custom AMW association and scrape target are active |
+| Managed Gateway API CRDs | managed Gateway API installation profile | AzAPI cluster ingress profile | Gateway API CRDs are managed and established |
+| Application-routing Gateway API | application-routing Istio profile | AzAPI cluster application-routing profile | `approuting-istio` exists; service-mesh profile is absent |
+| Container Insights | `addonProfiles.omsagent` plus DCR/DCRA | AzAPI cluster addon profile plus AzureRM DCR/DCRA | custom LAW association is active; no unexpected default LAW |
+| Managed Prometheus | `azureMonitorProfile.metrics` plus DCR/DCRA | AzAPI cluster monitor profile plus AzureRM DCR/DCRA | custom AMW association and scrape target are active |
 
-For Terraform, AzureRM owns cluster creation and all fields exposed by the dedicated resource. One narrowly scoped `azapi_update_resource` owns only the missing managed Gateway API and monitoring profiles against stable API `2026-04-01`, after DCR destinations exist. Repeated plan/apply tests and post-deploy ARM assertions prove that AzureRM does not remove or reset those profiles. If this ownership cannot be made idempotent, implementation must stop and revise the design rather than move the whole cluster to AzAPI silently.
+For Terraform, one `azapi_resource` owns the complete cluster declaration against stable API `2026-04-01`, after custom monitoring destinations exist. No AzureRM cluster or competing profile update manages the same resource. Repeated plan/apply tests and post-deploy ARM assertions remain mandatory to verify convergence and preservation of service-owned properties.
 
 ## Infrastructure and deployment
 
@@ -402,9 +402,11 @@ and the [Bicep implementation notes](../../../infrastructure/aks-automatic/bicep
 
 ### Terraform
 
-Terraform constrains AzureRM to `>= 5.0.1, < 6.0.0` and uses `azurerm_kubernetes_automatic_cluster` for the cluster. AzureRM resources manage the resource group, network, identities, RBAC, ACR, Key Vault, private endpoints/DNS, monitoring, alerts, and Grafana.
+Terraform constrains AzureRM to `>= 5.0.1, < 6.0.0`. AzureRM resources manage the resource group, network, identities, RBAC, Key Vault, private endpoints/DNS, monitoring, alerts, Grafana, and state storage.
 
-One narrowly scoped `azapi_update_resource` owns only Automatic properties not exposed by AzureRM: managed Gateway API installation and the Container Insights/managed Prometheus cluster profiles. It targets stable API `2026-04-01`, runs after custom monitoring destinations exist, and is covered by repeated-plan assertions. AzAPI is not used for resources supported by AzureRM, except the server-generated marker-key ARM child noted above. Parity tests inspect resulting ARM properties rather than provider implementation details.
+On 2026-09-23 the user approved AzAPI ownership of the Automatic cluster and registry for #8. Installed AzureRM 5.6.0 omits initial pod/service network and DNS settings from the Automatic resource and subnet rules from the registry. Each resource has one AzAPI owner: cluster API `2026-04-01` and registry API `2026-03-01-preview` (the existing registry-only preview exception). The server-generated marker-key child remains AzAPI. Other supported resources remain AzureRM. See the [provider compatibility evidence](../../../infrastructure/aks-automatic/terraform/README.md).
+
+This replaces the original native-cluster ownership decision, not the shared configuration, security, output, or parity contract. Explicit payload validation and selected nonsecret response exports mitigate the loss of native field abstractions. A future move back to AzureRM requires verified schema parity and a reviewed state migration, not overlapping owners. The ownership exception does not authorize Azure deployment/deletion or waive live repeated-deployment acceptance; the separately approved sequencing exception below assigns that evidence to #11/#12.
 
 Provider lock files are committed. CI runs `terraform fmt`, `terraform init -backend=false`, `terraform validate`, TFLint, and a security scanner.
 
@@ -579,6 +581,16 @@ only: the full foundation cannot be declared deployment-validated or complete
 until the required dev and private production-shaped lifecycles pass for both
 engines. Azure deployment and deletion still require separate authorization.
 
+On 2026-09-23, the user also approved moving issue #8's live validation to
+issues #11 and #12. Issue #11 must execute Terraform initial/repeated deployment,
+backend bootstrap/migration and updates with deployed environment state, permission
+propagation, recovery, lease refusal, protected cleanup, and resource/state
+convergence checks. Issue #12 must collect and audit the sanitized results,
+including the cross-engine monitoring/dashboard compatibility evidence. Issue #8
+and pull request #21 may merge once offline checks and review requirements pass.
+No live result is implied, no Azure operation is authorized by this deferral,
+and missing evidence continues to block completion of the full foundation #5.
+
 Verification captures ARM state, private DNS answers, TCP reachability, Kubernetes conditions, ACR image pull, Workload Identity, Prometheus target/sample discovery, DCR/DCRA associations, Grafana linkage, alert rules, redacted Terraform state shape, repeated plan/what-if output, Helm lifecycle, readiness timing, and post-destroy residuals.
 
 ### Cleanup semantics
@@ -597,9 +609,9 @@ Rejected by user decision. Click supplies the required command grouping, option 
 
 Rejected because production requires explicit private connectivity, custom subnets, private endpoints, and DNS integration. A custom VNet makes these Day-0 boundaries visible and reproducible.
 
-### AzAPI-only Terraform cluster
+### Native AzureRM Terraform cluster
 
-Rejected because AzureRM 5.0.1 now has a dedicated `azurerm_kubernetes_automatic_cluster`. Native AzureRM is preferred. AzAPI remains a narrow compatibility tool only for required ARM properties not exposed by the dedicated resource.
+Originally selected because AzureRM has a dedicated Automatic resource. Superseded by the approved 2026-09-23 exception after installed-schema and creation-code checks showed missing initial network configuration. The cluster and registry use AzAPI; other supported resources retain AzureRM ownership.
 
 ### AKS Standard
 
@@ -632,7 +644,7 @@ Rejected because it would create a third infrastructure implementation and weake
 | Regional capacity delays provisioning | Thirty-minute target is missed | Preflight region support/quota, report capacity errors clearly, and allow a configurable region |
 | Destroy removes the wrong environment | Data loss and outage | Typed environment confirmation, explicit production override, active subscription/resource summary, and backend exclusion |
 | Purge-protected Key Vault remains soft-deleted | Name cannot be reused immediately | Treat retention as expected, report it explicitly, support recovery, and use a configurable deterministic naming seed |
-| AzureRM and AzAPI profile ownership conflict | Repeated plans reset monitoring or Gateway API | Limit AzAPI to named missing properties, order updates, assert ARM state, and require a clean repeated plan |
+| Provider or service defaults overwrite declared settings | Repeated plans reset networking, monitoring, or Gateway API | Use one owner per resource, explicit profiles, ordered dependencies, ARM assertions, and clean repeated plans |
 
 ## Delivery plan
 
@@ -650,7 +662,7 @@ Work-item issues created after design acceptance will refine this ordering into 
 
 - Decision: use Click for the Python CLI.
 - Decision: use Azure CNI Overlay/Cilium as the AKS network data plane and defer Istio until a workload requires mesh features.
-- Decision: use native `azurerm_kubernetes_automatic_cluster` with AzureRM 5.0.1 or later; limit AzAPI to unsupported properties and nonsecret reads.
+- Decision (updated 2026-09-23 with user approval): use AzAPI as sole owner of the Automatic cluster and registry to preserve the shared contract; retain AzureRM for other supported resources and AzAPI for the marker-key child.
 - Decision: explicitly enable managed Gateway API CRDs and `approuting-istio`; this sidecarless ingress implementation is in scope while the Istio service-mesh add-on remains disabled.
 - Decision: use service endpoints and deny-by-default network rules for restricted dev ACR/Key Vault access; use private endpoints in production.
 - Decision: use Azure Kubernetes Service RBAC Cluster Admin for the platform-admin group because the Helm lifecycle owns a Namespace; limit the role to that explicitly configured group and keep local accounts disabled.
