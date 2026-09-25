@@ -92,9 +92,11 @@ class StateBackend:
             f"{state.state_storage_account}"
         )
 
-    def _run(self, *arguments: str) -> str:
+    def _run(self, *arguments: str, pass_fds: tuple[int, ...] = ()) -> str:
         for attempt in range(4):
-            result = run_command(arguments, timeout_seconds=1800, environment=self.environment)
+            result = run_command(
+                arguments, timeout_seconds=1800, environment=self.environment, pass_fds=pass_fds
+            )
             read_operation = arguments[:3] == ("az", "storage", "blob") and arguments[3] in {
                 "list",
                 "download",
@@ -111,9 +113,11 @@ class StateBackend:
             raise ValueError(f"{arguments[0]} failed ({result.return_code}): {result.stderr}")
         return result.stdout
 
-    def _az(self, *arguments: str) -> Any:
+    def _az(self, *arguments: str, pass_fds: tuple[int, ...] = ()) -> Any:
         scope = ("--subscription", self.subscription) if self.subscription else ()
-        output = self._run("az", *arguments, *scope, "--only-show-errors", "--output", "json")
+        output = self._run(
+            "az", *arguments, *scope, "--only-show-errors", "--output", "json", pass_fds=pass_fds
+        )
         try:
             return json.loads(output) if output.strip() else None
         except json.JSONDecodeError as error:
@@ -121,7 +125,7 @@ class StateBackend:
                 "Azure returned an invalid or redacted response; no further action taken"
             ) from error
 
-    def _blob(self, *arguments: str) -> Any:
+    def _blob(self, *arguments: str, pass_fds: tuple[int, ...] = ()) -> Any:
         state = self.config.spec.terraform
         return self._az(
             "storage",
@@ -133,6 +137,7 @@ class StateBackend:
             state.state_container,
             "--auth-mode",
             "login",
+            **({"pass_fds": pass_fds} if pass_fds else {}),
         )
 
     def _terraform(self, *arguments: str) -> str:

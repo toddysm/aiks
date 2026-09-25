@@ -11,7 +11,7 @@ from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Any
 
-from aiks.azure import AzureSession, cli_environment
+from aiks.azure import AzureSession, cli_environment, object_response
 from aiks.config import EnvironmentConfig
 from aiks.process import run_command
 
@@ -117,7 +117,7 @@ def cloud_preflight(config: EnvironmentConfig, azure: AzureSession) -> dict[str,
     policy = platform_policy()
     if config.spec.location not in policy["automaticRegions"]:
         raise ValueError("region is not in the reviewed AKS Automatic availability catalog")
-    cloud = azure.json("cloud", "show")
+    cloud = object_response(azure.json("cloud", "show"), "cloud context")
     if cloud.get("name") != "AzureCloud":
         raise ValueError("this foundation currently supports Azure public cloud only")
     providers = azure.json(

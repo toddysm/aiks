@@ -222,6 +222,8 @@ def verify_roles(assignments: Any, expected: set[tuple[str, str, str]]) -> None:
         raise ValueError("role assignment inventory is unverifiable")
     actual = set()
     for assignment in assignments:
+        if not isinstance(assignment, dict):
+            raise ValueError("role assignment metadata is malformed")
         properties = assignment.get("properties", assignment)
         try:
             actual.add(

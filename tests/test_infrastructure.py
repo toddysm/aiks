@@ -173,12 +173,68 @@ def test_plan_cannot_replace_or_touch_foreign_resources(runtime, change):
         runtime._check_terraform_plan({"resource_changes": [{"change": change}]})
 
 
+@pytest.mark.parametrize("partial", [False, True])
+def test_cleanup_refuses_artifact_swap_after_workspace_scan(
+    runtime, monkeypatch, tmp_path, partial
+):
+    _config, outputs, _observed = live_fixture()
+    group = {
+        "name": outputs.resource_group.name,
+        "id": outputs.resource_group.id,
+        "tags": {"aiks-instance": "instance"},
+    }
+    external = tmp_path / "injected.json"
+    external.write_text(
+        json.dumps(
+            {
+                "engine": "bicep",
+                "owner": runtime.owner,
+                "groupId": group["id"],
+                "instance": "instance",
+            }
+        )
+    )
+
+    def owned_group():
+        (runtime.directory / ("intent.json" if partial else "owner.json")).symlink_to(external)
+        return group
+
+    monkeypatch.setattr(runtime, "_owned_group", owned_group)
+    monkeypatch.setattr(runtime, "_outputs", lambda: pytest.fail("must refuse before cleanup"))
+    monkeypatch.setattr(runtime, "_run", lambda *args: pytest.fail("must not mutate resources"))
+    with pytest.raises((OSError, ValueError)):
+        runtime.destroy(confirmed_environment="dev", allow_partial=partial)
+
+
+@pytest.mark.parametrize("content", ["[]", "x" * (64 * 1024 + 1)])
+def test_ownership_artifact_is_bounded_and_object_shaped(runtime, content):
+    with runtime.session():
+        (runtime.directory / "owner.json").write_text(content)
+        with pytest.raises(ValueError):
+            runtime._ownership_artifact("owner.json")
+
+
 def test_graph_snapshot_refuses_truncation(runtime, monkeypatch):
     from test_workload import foundation
 
     monkeypatch.setattr(runtime.azure, "json", lambda *args: {"data": [], "$skipToken": "more"})
     with pytest.raises(ValueError, match="incomplete"):
         runtime._snapshot(foundation())
+
+
+@pytest.mark.parametrize("response", [None, [], {"data": [None]}, {"data": [{"id": 1}]}])
+def test_graph_snapshot_requires_structured_metadata(runtime, monkeypatch, response):
+    _config, outputs, _observed = live_fixture()
+    monkeypatch.setattr(runtime.azure, "json", lambda *args: response)
+    with pytest.raises(ValueError, match="resource graph"):
+        runtime._snapshot(outputs)
+
+
+@pytest.mark.parametrize("response", [None, {}, {"id": None}, {"id": 1}, {"id": []}])
+def test_resource_identity_requires_a_string(runtime, monkeypatch, response):
+    monkeypatch.setattr(runtime.azure, "json", lambda *args: response)
+    with pytest.raises(ValueError, match="identity"):
+        runtime._resource("/resource", "2026-04-01")
 
 
 @pytest.mark.parametrize("engine", ["bicep", "terraform"])
@@ -310,9 +366,12 @@ def test_only_empty_environment_state_is_removed(runtime, monkeypatch, blocked):
         def inventory(self):
             return [] if deleted else [{"name": key, "properties": {"leaseStatus": "unlocked"}}]
 
-        def _blob(self, *arguments):
+        def _blob(self, *arguments, pass_fds=()):
             calls.append(arguments)
             if arguments[0] == "download":
+                assert len(pass_fds) == 1
+                assert arguments[arguments.index("--file") + 1] == f"/dev/fd/{pass_fds[0]}"
+                assert not list(runtime.directory.glob("empty-state-*.json"))
                 Path(arguments[arguments.index("--file") + 1]).write_text(
                     json.dumps(
                         {

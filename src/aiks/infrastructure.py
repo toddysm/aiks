@@ -160,6 +160,23 @@ class InfrastructureRuntime:
         finally:
             os.close(descriptor)
 
+    def _ownership_artifact(self, name: str) -> dict[str, Any]:
+        directory = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            descriptor = os.open(
+                name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+            )
+        finally:
+            os.close(directory)
+        with os.fdopen(descriptor, encoding="utf-8") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("ownership artifact must be a private regular file")
+            text = handle.read(64 * 1024 + 1)
+            if len(text) > 64 * 1024:
+                raise ValueError("ownership artifact exceeds the size bound")
+            return object_response(json.loads(text), "ownership artifact")
+
     def _groups(self) -> list[dict[str, Any]]:
         response = self.azure.json("group", "list")
         if not isinstance(response, list) or not all(
@@ -504,7 +521,11 @@ class InfrastructureRuntime:
             "--url",
             f"https://management.azure.com{resource_id}?api-version={api_version}",
         )
-        if not isinstance(value, dict) or value.get("id", "").lower() != resource_id.lower():
+        if (
+            not isinstance(value, dict)
+            or not isinstance(value.get("id"), str)
+            or value["id"].lower() != resource_id.lower()
+        ):
             raise ValueError("Azure resource identity could not be verified")
         return value
 
@@ -887,6 +908,7 @@ class InfrastructureRuntime:
                 }
             ),
         )
+        snapshot = object_response(snapshot, "resource graph inventory")
         if (
             snapshot.get("$skipToken")
             or snapshot.get("resultTruncated") in {True, "true"}
@@ -894,6 +916,13 @@ class InfrastructureRuntime:
         ):
             raise ValueError("resource graph inventory is incomplete")
         resources = snapshot["data"]
+        if any(
+            not isinstance(resource, dict)
+            or not isinstance(resource.get("id"), str)
+            or not isinstance(resource.get("type"), str)
+            for resource in resources
+        ):
+            raise ValueError("resource graph inventory entries are malformed")
         required = {
             outputs.cluster.id.lower(),
             outputs.registry.id.lower(),
@@ -1222,48 +1251,45 @@ class InfrastructureRuntime:
         if terraform.blob_lease(entry)["status"] != "unlocked":
             raise ValueError("environment state has an active lease")
         lease = str(uuid4())
-        path = self.directory / f"empty-state-{uuid4()}.json"
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        os.close(descriptor)
         deleted = False
-        try:
-            backend._blob(
-                "lease",
-                "acquire",
-                "--blob-name",
-                key,
-                "--lease-duration",
-                "-1",
-                "--proposed-lease-id",
-                lease,
-            )
-            backend._blob(
-                "download",
-                "--name",
-                key,
-                "--file",
-                str(path),
-                "--overwrite",
-                "true",
-                "--lease-id",
-                lease,
-            )
-            if path.stat().st_size > 32 * 1024 * 1024:
-                raise ValueError("environment state exceeds the recovery bound")
-            state = json.loads(path.read_text())
-            terraform.check_empty_environment_state(state)
-            if self._groups():
-                raise ValueError("environment appeared during state cleanup")
-            backend._blob("delete", "--name", key, "--lease-id", lease)
-            deleted = True
-            if any(blob.get("name") == key for blob in backend.inventory()):
-                raise ValueError("environment state-key removal was not verified")
-        finally:
+        with tempfile.TemporaryFile(mode="w+b", dir=self.directory) as handle:
             try:
+                backend._blob(
+                    "lease",
+                    "acquire",
+                    "--blob-name",
+                    key,
+                    "--lease-duration",
+                    "-1",
+                    "--proposed-lease-id",
+                    lease,
+                )
+                backend._blob(
+                    "download",
+                    "--name",
+                    key,
+                    "--file",
+                    f"/dev/fd/{handle.fileno()}",
+                    "--overwrite",
+                    "true",
+                    "--lease-id",
+                    lease,
+                    pass_fds=(handle.fileno(),),
+                )
+                if os.fstat(handle.fileno()).st_size > 32 * 1024 * 1024:
+                    raise ValueError("environment state exceeds the recovery bound")
+                handle.seek(0)
+                state = json.loads(handle.read(32 * 1024 * 1024 + 1))
+                terraform.check_empty_environment_state(state)
+                if self._groups():
+                    raise ValueError("environment appeared during state cleanup")
+                backend._blob("delete", "--name", key, "--lease-id", lease)
+                deleted = True
+                if any(blob.get("name") == key for blob in backend.inventory()):
+                    raise ValueError("environment state-key removal was not verified")
+            finally:
                 if not deleted:
                     backend._blob("lease", "release", "--blob-name", key, "--lease-id", lease)
-            finally:
-                path.unlink(missing_ok=True)
 
     def destroy(
         self,
@@ -1280,7 +1306,7 @@ class InfrastructureRuntime:
                 raise ValueError("owned environment could not be verified")
             if allow_partial:
                 return self._destroy_partial(group, confirmed_environment, allow_production)
-            receipt = json.loads((self.directory / "owner.json").read_text())
+            receipt = self._ownership_artifact("owner.json")
             if (
                 receipt.get("engine") != self.engine
                 or receipt.get("groupId", "").lower() != group["id"].lower()
@@ -1352,7 +1378,7 @@ class InfrastructureRuntime:
     def _destroy_partial(
         self, group: dict[str, Any], confirmation: str, allow_production: bool
     ) -> dict[str, Any]:
-        intent = json.loads((self.directory / "intent.json").read_text())
+        intent = self._ownership_artifact("intent.json")
         if (
             intent.get("engine") != self.engine
             or intent.get("owner") != self.owner

@@ -261,6 +261,12 @@ def test_missing_or_wrong_property_refuses(actual):
         assert_properties(actual, {"profile.enabled": True}, "cluster")
 
 
+@pytest.mark.parametrize("assignment", [None, [], "invalid"])
+def test_role_contract_rejects_non_object_assignments(assignment):
+    with pytest.raises(ValueError, match="malformed"):
+        verify_roles([assignment], set())
+
+
 def test_role_contract_rejects_extra_privilege():
     expected = {("/resource", "principal", "reader")}
     role = {"scope": "/resource", "principalId": "principal", "roleDefinitionId": "/roles/reader"}

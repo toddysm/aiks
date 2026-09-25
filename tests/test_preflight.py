@@ -115,6 +115,17 @@ def test_cloud_preflight_fails_before_mutation(failure, lowercase, limit, curren
         assert cloud_preflight(config, Session())["permissions"] == "verified"
 
 
+@pytest.mark.parametrize("response", [None, [], "invalid"])
+def test_cloud_context_requires_an_object(response):
+    class Session:
+        def json(self, *args):
+            assert args == ("cloud", "show")
+            return response
+
+    with pytest.raises(ValueError, match="cloud context"):
+        cloud_preflight(load_environment_config(CONFIG), Session())
+
+
 def test_public_resolution_is_rejected_for_private_probe(monkeypatch):
     monkeypatch.setattr(
         "aiks.preflight.socket.getaddrinfo",
