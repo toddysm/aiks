@@ -37,6 +37,22 @@ def test_kind_node_image_must_be_digest_pinned() -> None:
         LocalKubernetes(node_image="kindest/node:latest")
 
 
+def test_local_runtime_filters_inherited_cloud_credentials(monkeypatch):
+    injected = ("ARM_CLIENT_SECRET", "TF_CLI_ARGS", "AZURE_USERNAME", "AZURE_PASSWORD")
+    for name in injected:
+        monkeypatch.setenv(name, "synthetic-value")
+    monkeypatch.setenv("AIKS_TEST_MARKER", "retained")
+
+    def execute(arguments, **kwargs):
+        assert all(name not in kwargs["environment"] for name in injected)
+        assert kwargs["environment"]["AIKS_TEST_MARKER"] == "retained"
+        return CommandResult(tuple(arguments), 0, "ok", "")
+
+    monkeypatch.setattr("aiks.workload.run_command", execute)
+    runtime = WorkloadRuntime(load_environment_config(CONFIG), "kind")
+    assert runtime._run("kind", "version") == "ok"
+
+
 def test_local_values_and_chart() -> None:
     runtime = WorkloadRuntime(load_environment_config(CONFIG), "kind")
     values = runtime.values("aiks-readiness:content123")

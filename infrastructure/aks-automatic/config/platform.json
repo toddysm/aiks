@@ -1,0 +1,15 @@
+{
+  "source": "https://learn.microsoft.com/azure/aks/automatic/quick-automatic-custom-network",
+  "reviewed": "2026-09-24",
+  "automaticRegions": ["australiacentral", "australiaeast", "australiasoutheast", "austriaeast", "belgiumcentral", "brazilsouth", "canadacentral", "canadaeast", "centralindia", "centralus", "chilecentral", "denmarkeast", "eastasia", "eastus", "eastus2", "francecentral", "germanywestcentral", "indonesiacentral", "israelcentral", "italynorth", "japaneast", "japanwest", "koreacentral", "koreasouth", "malaysiawest", "mexicocentral", "newzealandnorth", "northcentralus", "northeurope", "norwayeast", "polandcentral", "southafricanorth", "southcentralus", "southeastasia", "southindia", "spaincentral", "swedencentral", "switzerlandnorth", "uaenorth", "uksouth", "ukwest", "westcentralus", "westeurope", "westus", "westus2", "westus3"],
+  "providers": ["Microsoft.ContainerService", "Microsoft.Compute", "Microsoft.Network", "Microsoft.ManagedIdentity", "Microsoft.Authorization", "Microsoft.ContainerRegistry", "Microsoft.KeyVault", "Microsoft.OperationalInsights", "Microsoft.Monitor", "Microsoft.Insights", "Microsoft.Dashboard", "Microsoft.AlertsManagement", "Microsoft.PolicyInsights", "Microsoft.Storage"],
+  "requiredActions": ["Microsoft.Resources/subscriptions/resourceGroups/write", "Microsoft.Resources/deployments/write", "Microsoft.Authorization/roleAssignments/write", "Microsoft.ContainerService/managedClusters/write", "Microsoft.Network/virtualNetworks/write", "Microsoft.ManagedIdentity/userAssignedIdentities/write", "Microsoft.ContainerRegistry/registries/write", "Microsoft.KeyVault/vaults/write", "Microsoft.KeyVault/vaults/keys/write"],
+  "tools": {
+    "az": {"arguments": ["version", "--output", "json"], "field": "azure-cli", "minimum": [2, 86, 0], "major": [2]},
+    "bicep": {"arguments": ["--version"], "minimum": [0, 46, 1], "major": [0]},
+    "terraform": {"arguments": ["version", "-json"], "field": "terraform_version", "minimum": [1, 15, 8], "major": [1]},
+    "helm": {"arguments": ["version", "--short"], "minimum": [3, 17, 0], "major": [3, 4]},
+    "kubectl": {"arguments": ["version", "--client", "-o", "json"], "field": "clientVersion.gitVersion", "minimum": [1, 35, 0], "major": [1]},
+    "kubelogin": {"arguments": ["--version"], "minimum": [0, 2, 0], "major": [0]}
+  }
+}

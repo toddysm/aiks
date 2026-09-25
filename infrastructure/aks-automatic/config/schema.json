@@ -41,6 +41,9 @@
         "identity": {
           "$ref": "#/$defs/Identity"
         },
+        "lifecycle": {
+          "$ref": "#/$defs/InfrastructureLifecycle"
+        },
         "local": {
           "$ref": "#/$defs/LocalKubernetes"
         },
@@ -98,6 +101,64 @@
         "adminGroupObjectId"
       ],
       "title": "Identity",
+      "type": "object"
+    },
+    "InfrastructureLifecycle": {
+      "additionalProperties": false,
+      "description": "Nonsecret operator timeouts and private-network preflight targets.",
+      "properties": {
+        "alertTimeoutSeconds": {
+          "default": 900,
+          "maximum": 3600,
+          "minimum": 300,
+          "title": "Alerttimeoutseconds",
+          "type": "integer"
+        },
+        "connectionTimeoutSeconds": {
+          "default": 10,
+          "maximum": 60,
+          "minimum": 1,
+          "title": "Connectiontimeoutseconds",
+          "type": "integer"
+        },
+        "deploymentTimeoutSeconds": {
+          "default": 1800,
+          "maximum": 7200,
+          "minimum": 300,
+          "title": "Deploymenttimeoutseconds",
+          "type": "integer"
+        },
+        "minimumAvailableCores": {
+          "default": 4,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Minimumavailablecores",
+          "type": "integer"
+        },
+        "pollIntervalSeconds": {
+          "default": 10,
+          "maximum": 60,
+          "minimum": 1,
+          "title": "Pollintervalseconds",
+          "type": "integer"
+        },
+        "privateProbeHosts": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Privateprobehosts",
+          "type": "array"
+        },
+        "verificationTimeoutSeconds": {
+          "default": 300,
+          "maximum": 1800,
+          "minimum": 30,
+          "title": "Verificationtimeoutseconds",
+          "type": "integer"
+        }
+      },
+      "title": "InfrastructureLifecycle",
       "type": "object"
     },
     "LocalKubernetes": {

@@ -36,6 +36,7 @@ def run_command(
     cwd: Path | None = None,
     timeout_seconds: float | None = None,
     environment: Mapping[str, str] | None = None,
+    pass_fds: tuple[int, ...] = (),
 ) -> CommandResult:
     """Run a command without a shell and redact captured output."""
 
@@ -51,6 +52,7 @@ def run_command(
             env=dict(environment) if environment is not None else None,
             text=True,
             timeout=timeout_seconds,
+            pass_fds=pass_fds,
         )
     except subprocess.TimeoutExpired as error:
         timeout_message = f"command timed out after {error.timeout} seconds"

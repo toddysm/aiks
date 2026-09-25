@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,6 +10,7 @@ from uuid import uuid4
 
 from rich.console import Console
 
+from aiks.engines.terraform import write_json
 from aiks.redaction import redact
 
 
@@ -36,9 +36,7 @@ class OperationResult:
         }
 
     def write_json(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        content = json.dumps(self.as_dict(), indent=2, sort_keys=True) + "\n"
-        path.write_text(content, encoding="utf-8")
+        write_json(path, self.as_dict(), create_parents=True)
 
     def log(self, logger: logging.Logger | None = None) -> None:
         """Log the operation through the local, redacted result boundary."""

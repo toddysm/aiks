@@ -16,7 +16,9 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from aiks.azure import cli_environment
 from aiks.config import EnvironmentConfig
+from aiks.engines.terraform import write_json
 from aiks.outputs import FoundationOutputs
 from aiks.process import run_command
 
@@ -105,6 +107,7 @@ class WorkloadRuntime:
         self.outputs = outputs
         self.name = config.spec.local.kind_cluster_name
         self.timeout = config.spec.workload.timeout_seconds
+        self.environment = cli_environment()
         self.directory = Path.cwd() / ".aiks" / "local" / self.name
         self.kubeconfig = kubeconfig or self.directory / "kubeconfig"
         self.context = context or f"kind-{self.name}"
@@ -128,7 +131,9 @@ class WorkloadRuntime:
             raise ValueError("kind uses only its private managed kubeconfig and context")
 
     def _run(self, *arguments: str) -> str:
-        result = run_command(arguments, timeout_seconds=self.timeout + 120)
+        result = run_command(
+            arguments, timeout_seconds=self.timeout + 120, environment=self.environment
+        )
         if not result.succeeded:
             raise ValueError(f"{arguments[0]} failed ({result.return_code}): {result.stderr}")
         return result.stdout
@@ -202,8 +207,7 @@ class WorkloadRuntime:
             self.kubeconfig.chmod(0o600)
             uid = self._get("namespace", "kube-system", None)["metadata"]["uid"]
             receipt = self.directory / "owner.json"
-            receipt.write_text(json.dumps({"name": self.name, "owner": self.owner, "uid": uid}))
-            receipt.chmod(0o600)
+            write_json(receipt, {"name": self.name, "owner": self.owner, "uid": uid})
         self._helm(
             "upgrade",
             "--install",
@@ -363,8 +367,7 @@ class WorkloadRuntime:
         image = self._image()
         self._private_directory()
         values_file = self.directory / f"{self.target}-values.json"
-        values_file.write_text(json.dumps(self.values(image)))
-        values_file.chmod(0o600)
+        write_json(values_file, self.values(image))
         major = self._run("helm", "version", "--short").lstrip("v").split(".")[0]
         rollback_flag = "--rollback-on-failure" if major == "4" else "--atomic"
         with chart_path() as chart:

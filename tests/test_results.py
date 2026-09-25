@@ -5,6 +5,7 @@ import logging
 from io import StringIO
 from pathlib import Path
 
+import pytest
 from rich.console import Console
 
 from aiks.logging import configure_logging
@@ -20,13 +21,38 @@ def test_result_redacts_context_and_writes_json(tmp_path: Path) -> None:
         context={"token": "sensitive", "safe": "value"},
         correlation_id="correlation",
     )
-    path = tmp_path / "result.json"
+    path = tmp_path / "nested" / "results" / "result.json"
 
     result.write_json(path)
     payload = json.loads(path.read_text())
 
     assert payload["durationSeconds"] == 1.235
     assert payload["context"] == {"safe": "value", "token": "<redacted>"}
+    assert path.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_result_parent_creation_refuses_symlinks(tmp_path: Path) -> None:
+    external = tmp_path / "external"
+    external.mkdir()
+    parent = tmp_path / "linked"
+    parent.symlink_to(external, target_is_directory=True)
+    result = OperationResult("test", "unit", True, 0.1)
+    with pytest.raises(OSError):
+        result.write_json(parent / "new" / "result.json")
+    assert not list(external.iterdir())
+
+
+def test_result_output_does_not_follow_symlink(tmp_path: Path) -> None:
+    external = tmp_path / "external.txt"
+    external.write_text("preserve")
+    path = tmp_path / "result.json"
+    path.symlink_to(external)
+    result = OperationResult("test", "unit", True, 0.1, context={"token": "synthetic-secret"})
+    result.write_json(path)
+    assert external.read_text() == "preserve"
+    assert not path.is_symlink()
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert json.loads(path.read_text())["context"]["token"] == "<redacted>"
 
 
 def test_result_renders_human_summary() -> None:
