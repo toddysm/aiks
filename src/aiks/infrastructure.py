@@ -766,6 +766,15 @@ class InfrastructureRuntime:
                 + f"/providers/Microsoft.Network/privateEndpoints/pe-{prefix}-{base}",
                 "2025-01-01",
             )
+            endpoint_properties = object_response(endpoint.get("properties"), "private endpoint")
+            subnet_id = object_response(
+                endpoint_properties.get("subnet"), "private endpoint subnet"
+            ).get("id")
+            if (
+                not isinstance(subnet_id, str)
+                or subnet_id.lower() != outputs.network.subnet_ids.private_endpoint.lower()
+            ):
+                raise ValueError(f"{service} private endpoint subnet binding drift")
             connections = endpoint["properties"].get("privateLinkServiceConnections", [])
             if (
                 len(connections) != 1
@@ -1169,7 +1178,12 @@ class InfrastructureRuntime:
                     )
                 )
         assignments = self.azure.json("role", "assignment", "list", "--all")
-        if not isinstance(assignments, list):
+        if not isinstance(assignments, list) or any(
+            not isinstance(assignment, dict)
+            or not isinstance(assignment.get("scope"), str)
+            or not assignment["scope"]
+            for assignment in assignments
+        ):
             raise ValueError("role inventory is unverifiable")
         prefix = outputs.resource_group.id.lower()
         local = [

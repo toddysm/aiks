@@ -493,6 +493,14 @@ def test_live_role_inventory(runtime, monkeypatch, environment):
         runtime._verify_roles(outputs, observed)
 
 
+@pytest.mark.parametrize("assignment", [None, [], {}, {"scope": None}, {"scope": 1}, {"scope": ""}])
+def test_role_scope_is_validated_before_filtering(runtime, monkeypatch, assignment):
+    _config, outputs, observed = live_fixture()
+    monkeypatch.setattr(runtime.azure, "json", lambda *args: [assignment])
+    with pytest.raises(ValueError, match="role inventory"):
+        runtime._verify_roles(outputs, observed)
+
+
 def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
     from ipaddress import ip_network
 
@@ -503,6 +511,7 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
     api_address = str(ip_network(config.spec.network.api_server_subnet_cidr)[4])
     frontend = {"privateIPAddress": address}
     zone_drift = []
+    subnet_overrides = {}
 
     def resource(identifier, version):
         if "/privateDnsZoneGroups/" in identifier:
@@ -535,6 +544,9 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
         target = outputs.registry.id if identifier.endswith("pe-acr-" + base) else outputs.vault.id
         return {
             "properties": {
+                "subnet": {
+                    "id": subnet_overrides.get(target, outputs.network.subnet_ids.private_endpoint)
+                },
                 "privateLinkServiceConnections": [
                     {
                         "properties": {
@@ -572,6 +584,14 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
             return {"status": {"addresses": [{"value": address}]}}
 
     runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
+    for target in (outputs.registry.id, outputs.vault.id):
+        for subnet in ("foreign", None, 1):
+            subnet_overrides[target] = subnet
+            with pytest.raises(ValueError, match="subnet binding"):
+                runtime._private_frontends(
+                    outputs, observed, Workload(), {"gatewayAddress": address}
+                )
+        subnet_overrides.clear()
     zone_drift.append(True)
     with pytest.raises(ValueError, match="DNS-zone binding"):
         runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
