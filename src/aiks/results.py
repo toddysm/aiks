@@ -36,7 +36,7 @@ class OperationResult:
         }
 
     def write_json(self, path: Path) -> None:
-        write_json(path, self.as_dict())
+        write_json(path, self.as_dict(), create_parents=True)
 
     def log(self, logger: logging.Logger | None = None) -> None:
         """Log the operation through the local, redacted result boundary."""

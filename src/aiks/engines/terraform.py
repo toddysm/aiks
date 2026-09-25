@@ -265,7 +265,7 @@ def check_empty_environment_state(document: Any) -> None:
             raise ValueError("environment data-resource instances are unverifiable")
 
 
-def write_json(path: Path, value: Any) -> None:
+def write_json(path: Path, value: Any, *, create_parents: bool = False) -> None:
     content = json.dumps(value, indent=2) + "\n"
     directory = os.open(path.anchor or ".", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     temporary = f".aiks-{uuid4()}.json"
@@ -275,6 +275,9 @@ def write_json(path: Path, value: Any) -> None:
                 continue
             if part == "..":
                 raise ValueError("private artifact path must not traverse parent directories")
+            if create_parents:
+                with suppress(FileExistsError):
+                    os.mkdir(part, mode=0o700, dir_fd=directory)
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
             os.close(directory)
             directory = child

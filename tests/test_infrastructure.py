@@ -73,6 +73,7 @@ def test_malformed_preview_is_a_structured_failure(runtime, monkeypatch, respons
             }
         ],
         [{"path": "properties.networkProfile.podCidr", "propertyChangeType": "Modify"}],
+        [{"path": "properties.publicNetworkAccess", "propertyChangeType": "Create"}],
         [{"path": "properties", "propertyChangeType": "Array"}],
     ],
 )
@@ -85,13 +86,14 @@ def test_bicep_nested_destructive_preview_is_refused(runtime, monkeypatch, delta
         runtime.plan()
 
 
-def test_bicep_recognized_metadata_delta_is_allowed(runtime):
+@pytest.mark.parametrize("kind", ["Create", "Modify"])
+def test_bicep_recognized_metadata_delta_is_allowed(runtime, kind):
     runtime._check_bicep_delta(
         [
             {
                 "path": "tags",
                 "propertyChangeType": "Modify",
-                "children": [{"path": "tags.owner", "propertyChangeType": "Modify"}],
+                "children": [{"path": "tags.owner", "propertyChangeType": kind}],
             }
         ]
     )
@@ -136,7 +138,10 @@ def test_cross_engine_group_refuses_before_plan(runtime, monkeypatch):
         runtime.plan()
 
 
-def test_bicep_handoff_uses_descriptors_and_atomic_output(runtime, monkeypatch, tmp_path):
+@pytest.mark.parametrize("operation", ["validate", "what-if", "create"])
+def test_bicep_handoff_uses_descriptors_and_atomic_output(
+    runtime, monkeypatch, tmp_path, operation
+):
     external = tmp_path / "external-template"
     external.write_text("preserve")
     document = {"properties": {"apiKey": "Disabled"}}
@@ -159,6 +164,8 @@ def test_bicep_handoff_uses_descriptors_and_atomic_output(runtime, monkeypatch, 
     monkeypatch.setattr(runtime, "_run", execute)
     with runtime.session():
         assert runtime._bicep("validate") == {}
+        if operation != "validate":
+            assert runtime._bicep(operation) == {}
     assert external.read_text() == "preserve"
     assert not (runtime.directory / "template.json").is_symlink()
 

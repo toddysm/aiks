@@ -544,7 +544,7 @@ class InfrastructureRuntime:
                 raise ValueError("Bicep property removal/replacement requires separate review")
             if delta.get("children"):
                 self._check_bicep_delta(delta["children"])
-            elif kind == "Modify" and not (
+            elif kind in {"Create", "Modify"} and not (
                 path.startswith("tags.") or path == "properties.retentionInDays"
             ):
                 raise ValueError("Bicep property modification requires separate review")
