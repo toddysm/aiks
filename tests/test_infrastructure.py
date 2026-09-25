@@ -903,3 +903,20 @@ def test_child_collection_requires_complete_structured_response(
     else:
         with pytest.raises(ValueError):
             runtime._collection("/resource/children", "2025-01-01")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        None,
+        "invalid",
+        {"change": None},
+        {"change": {"actions": "delete"}},
+        {"change": {"actions": [None]}},
+        {"change": {"actions": ["update"], "before": []}},
+        {"change": {"actions": ["update"], "before": {"id": 4}}},
+    ],
+)
+def test_malformed_terraform_change_fails_cleanly(runtime, change):
+    with pytest.raises(ValueError):
+        runtime._check_terraform_plan({"resource_changes": [change]})

@@ -382,17 +382,39 @@ class InfrastructureRuntime:
         }
 
     def _check_terraform_plan(self, plan: dict[str, Any], *, destroy: bool = False) -> None:
+        plan = object_response(plan, "Terraform plan")
+        resources = plan.get("resource_changes", [])
+        if not isinstance(resources, list):
+            raise ValueError("Terraform resource changes must be a collection")
         group = self._owned_group(required=destroy)
-        for resource in plan.get("resource_changes", []):
+        for resource in resources:
+            resource = object_response(resource, "Terraform resource change")
+            change = object_response(resource.get("change"), "Terraform change")
+            actions = change.get("actions")
+            if (
+                not isinstance(actions, list)
+                or not actions
+                or any(
+                    not isinstance(action, str)
+                    or action not in {"no-op", "read", "create", "update", "delete"}
+                    for action in actions
+                )
+            ):
+                raise ValueError("Terraform change actions are malformed or unsupported")
+            if destroy and any(action not in {"no-op", "read", "delete"} for action in actions):
+                raise ValueError("destroy plan contains non-cleanup actions")
             if resource.get("mode") == "data":
                 continue
-            change = resource.get("change", {})
-            if not destroy and "delete" in change.get("actions", []):
+            if not destroy and "delete" in actions:
                 raise ValueError(
                     "deployment plan would replace or delete resources; review migration separately"
                 )
             for values in (change.get("before"), change.get("after")):
+                if values is not None and not isinstance(values, dict):
+                    raise ValueError("Terraform before/after resource values are malformed")
                 identifier = values.get("id") if isinstance(values, dict) else None
+                if identifier is not None and not isinstance(identifier, str):
+                    raise ValueError("Terraform resource identifier is malformed")
                 if identifier and (
                     group is None
                     or not (
