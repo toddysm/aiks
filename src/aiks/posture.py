@@ -87,6 +87,24 @@ def verify_foundation(
     endpoint = "privateFQDN" if spec.network.private_cluster else "fqdn"
     assert_properties(cluster, {f"properties.{endpoint}": outputs.cluster.fqdn}, "cluster endpoint")
     api = cluster["properties"]["apiServerAccessProfile"]
+    if spec.network.private_cluster:
+        expected_zone = (
+            outputs.resource_group.id
+            + f"/providers/Microsoft.Network/privateDnsZones/private.{spec.location}.azmk8s.io"
+        )
+        assert_properties(
+            cluster,
+            {"properties.apiServerAccessProfile.privateDNSZone": expected_zone},
+            "private API DNS",
+        )
+        assert_properties(
+            observed["privateDnsLink"],
+            {
+                "properties.virtualNetwork.id": outputs.network.vnet_id,
+                "properties.registrationEnabled": False,
+            },
+            "private API DNS link",
+        )
     if api.get("enablePrivateClusterPublicFQDN", False) is not False:
         raise ValueError("public private-cluster name is enabled")
     if set(api.get("authorizedIPRanges", [])) != set(

@@ -11,7 +11,7 @@ from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Any
 
-from aiks.azure import AzureSession
+from aiks.azure import AzureSession, cli_environment
 from aiks.config import EnvironmentConfig
 from aiks.process import run_command
 
@@ -35,7 +35,9 @@ def check_tools(engine: str) -> dict[str, str]:
     for name, policy in platform_policy()["tools"].items():
         if name in {"bicep", "terraform"} and name != engine:
             continue
-        result = run_command([name, *policy["arguments"]], timeout_seconds=30)
+        result = run_command(
+            [name, *policy["arguments"]], timeout_seconds=30, environment=cli_environment()
+        )
         if not result.succeeded:
             raise ValueError(f"required tool unavailable: {name}")
         value = result.stdout

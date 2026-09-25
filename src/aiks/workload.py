@@ -105,6 +105,7 @@ class WorkloadRuntime:
         self.outputs = outputs
         self.name = config.spec.local.kind_cluster_name
         self.timeout = config.spec.workload.timeout_seconds
+        self.environment: dict[str, str] | None = None
         self.directory = Path.cwd() / ".aiks" / "local" / self.name
         self.kubeconfig = kubeconfig or self.directory / "kubeconfig"
         self.context = context or f"kind-{self.name}"
@@ -128,7 +129,9 @@ class WorkloadRuntime:
             raise ValueError("kind uses only its private managed kubeconfig and context")
 
     def _run(self, *arguments: str) -> str:
-        result = run_command(arguments, timeout_seconds=self.timeout + 120)
+        result = run_command(
+            arguments, timeout_seconds=self.timeout + 120, environment=self.environment
+        )
         if not result.succeeded:
             raise ValueError(f"{arguments[0]} failed ({result.return_code}): {result.stderr}")
         return result.stdout

@@ -49,6 +49,17 @@ def test_bicep_preview_reports_noop_and_private_artifact(runtime, monkeypatch):
     assert (runtime.directory / "preview.json").stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.parametrize(
+    "response",
+    [None, [], "invalid", {}, {"changes": [None]}, {"changes": [{"changeType": "Unknown"}]}],
+)
+def test_malformed_preview_is_a_structured_failure(runtime, monkeypatch, response):
+    monkeypatch.setattr(runtime, "_preflight", lambda: {})
+    monkeypatch.setattr(runtime, "_bicep", lambda *args: response)
+    with pytest.raises(ValueError):
+        runtime.plan()
+
+
 def test_cross_engine_group_refuses_before_plan(runtime, monkeypatch):
     group = {
         "name": "rg-aiks-dev-dev-abcdefgh",
@@ -254,8 +265,9 @@ def test_only_empty_environment_state_is_removed(runtime, monkeypatch, blocked):
     assert any(call[:2] == ("lease", "release") for call in calls) is blocked
 
 
-def test_resource_reads_and_private_credentials(runtime, monkeypatch):
-    _config, outputs, _observed = live_fixture()
+@pytest.mark.parametrize("environment", ["dev", "production"])
+def test_resource_reads_and_private_credentials(runtime, monkeypatch, environment):
+    runtime.config, outputs, _observed = live_fixture(environment)
     calls = []
 
     def azure(*arguments):
@@ -271,9 +283,13 @@ def test_resource_reads_and_private_credentials(runtime, monkeypatch):
     monkeypatch.setattr(runtime, "_run", lambda *args, **kwargs: "")
     observed = runtime._observed(outputs)
     assert observed["cluster"]["id"] == outputs.cluster.id
+    if environment == "production":
+        assert observed["privateDnsZone"]["id"].endswith("private.westus3.azmk8s.io")
+        assert observed["privateDnsLink"]["id"].endswith("/virtualNetworkLinks/test")
     with runtime.session():
         workload = runtime._credentials(outputs)
         assert workload.context == outputs.cluster.name
+        assert workload.environment is runtime.azure.environment
         assert workload.kubeconfig.stat().st_mode & 0o777 == 0o600
     monkeypatch.setattr(runtime.azure, "json", lambda *args: {"id": "other"})
     with pytest.raises(ValueError, match="identity"):
@@ -605,6 +621,28 @@ def test_workspace_symlinks_are_rejected(runtime, tmp_path):
     runtime.directory.symlink_to(tmp_path, target_is_directory=True)
     with pytest.raises(ValueError, match="symbolic"), runtime.session():
         pass
+
+
+def test_lock_replacement_race_never_follows_symlink(runtime, monkeypatch, tmp_path):
+    import os
+
+    target = tmp_path / "unrelated.txt"
+    target.write_text("unchanged")
+    target.chmod(0o644)
+    original = os.open
+
+    def racing_open(path, flags, mode=0o777, **kwargs):
+        path = Path(path)
+        if path.name == ".operation.lock":
+            path.unlink(missing_ok=True)
+            path.symlink_to(target)
+        return original(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr("aiks.infrastructure.os.open", racing_open)
+    with pytest.raises(OSError), runtime.session():
+        pytest.fail("symlink race must refuse lock acquisition")
+    assert target.read_text() == "unchanged"
+    assert target.stat().st_mode & 0o777 == 0o644
 
 
 def test_cloud_inventory_must_have_valid_shape(runtime, monkeypatch):

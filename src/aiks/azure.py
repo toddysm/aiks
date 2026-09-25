@@ -13,22 +13,32 @@ from aiks.engines.bicep import destroy_command
 from aiks.process import run_command
 
 
+def cli_environment() -> dict[str, str]:
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith(
+            (
+                "ARM_",
+                "TF_",
+                "AZURE_STORAGE_",
+                "AZURE_CLIENT_",
+                "AZURE_TENANT_",
+                "AZURE_FEDERATED_",
+            )
+        )
+    }
+
+
+def object_response(value: Any, category: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{category} response is not an object")
+    return value
+
+
 class AzureSession:
     def __init__(self) -> None:
-        self.environment = {
-            name: value
-            for name, value in os.environ.items()
-            if not name.startswith(
-                (
-                    "ARM_",
-                    "TF_",
-                    "AZURE_STORAGE_",
-                    "AZURE_CLIENT_",
-                    "AZURE_TENANT_",
-                    "AZURE_FEDERATED_",
-                )
-            )
-        }
+        self.environment = cli_environment()
         self.subscription = ""
         account = self.json("account", "show")
         if not isinstance(account, dict) or account.get("state") != "Enabled":

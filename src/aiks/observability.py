@@ -6,14 +6,72 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
-from aiks.azure import AzureSession
+from aiks.azure import AzureSession, object_response
 from aiks.config import EnvironmentConfig
 from aiks.outputs import FoundationOutputs
+from aiks.parity import value_at
 from aiks.posture import assert_properties
 
 
 class TelemetryPendingError(ValueError):
     """A configured pipeline has not yet produced a current sample."""
+
+
+def prometheus_endpoint(endpoint: str, workspace: dict[str, Any]) -> str:
+    parsed = urlsplit(endpoint)
+    try:
+        authoritative = value_at(workspace, "properties.metrics.prometheusQueryEndpoint")
+    except (KeyError, TypeError) as error:
+        raise ValueError("observed Prometheus workspace endpoint is missing") from error
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or not parsed.hostname.endswith(".prometheus.monitor.azure.com")
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.port not in {None, 443}
+        or parsed.path not in {"", "/"}
+        or not isinstance(authoritative, str)
+        or endpoint.rstrip("/") != authoritative.rstrip("/")
+    ):
+        raise ValueError("Prometheus endpoint does not match the observed workspace")
+    return endpoint.rstrip("/")
+
+
+def require_prometheus_sample(response: Any) -> None:
+    response = object_response(response, "Prometheus")
+    if response.get("status") != "success":
+        raise ValueError("Prometheus query did not succeed")
+    data = object_response(response.get("data"), "Prometheus data")
+    results = data.get("result")
+    if not isinstance(results, list):
+        raise ValueError("Prometheus result collection is malformed")
+    if not results:
+        raise TelemetryPendingError("managed readiness metric target/sample was not verified")
+    for entry in results:
+        sample = object_response(entry, "Prometheus sample").get("value")
+        if not isinstance(sample, list) or len(sample) != 2:
+            raise ValueError("Prometheus sample value is malformed")
+        try:
+            value = float(sample[1])
+        except (TypeError, ValueError) as error:
+            raise ValueError("Prometheus sample value is invalid") from error
+        if value != 1:
+            raise TelemetryPendingError("managed readiness metric target/sample was not verified")
+
+
+def require_actions(actions: Any, expected: set[str]) -> None:
+    if not isinstance(actions, list) or any(
+        not isinstance(action, dict) or not isinstance(action.get("actionGroupId"), str)
+        for action in actions
+    ):
+        raise ValueError("alert notification actions are malformed")
+    if {action["actionGroupId"].lower() for action in actions} != {
+        identifier.lower() for identifier in expected
+    }:
+        raise ValueError("alert notification targets differ from configured action groups")
 
 
 def verify_observability(
@@ -134,18 +192,7 @@ def verify_observability(
             {"properties.dataCollectionRuleId": rule_id},
             "Prometheus collection association",
         )
-        endpoint = outputs.monitoring.prometheus_query_endpoint
-        parsed = urlsplit(endpoint)
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or not parsed.hostname.endswith(".prometheus.monitor.azure.com")
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("untrusted managed Prometheus query endpoint")
+        endpoint = prometheus_endpoint(outputs.monitoring.prometheus_query_endpoint, workspace)
         expression = (
             f'aiks_readiness_info{{environment="{config.spec.environment}",'
             f'cluster="{outputs.cluster.name}",namespace="aiks-readiness",'
@@ -160,13 +207,7 @@ def verify_observability(
             "--url",
             endpoint.rstrip("/") + "/api/v1/query?" + urlencode({"query": expression}),
         )
-        results = metrics.get("data", {}).get("result", [])
-        if (
-            metrics.get("status") != "success"
-            or not results
-            or any(float(entry["value"][1]) != 1 for entry in results)
-        ):
-            raise TelemetryPendingError("managed readiness metric target/sample was not verified")
+        require_prometheus_sample(metrics)
         report["prometheus"] = "ingesting-readiness"
     if settings.managed_grafana:
         grafana = resource(outputs.monitoring.grafana_id, "2024-10-01")
@@ -204,6 +245,15 @@ def verify_observability(
             },
             "resource-health alert",
         )
+        action_groups = set(settings.action_group_resource_ids)
+        if settings.action_group_receivers:
+            action_groups.add(group + f"/providers/Microsoft.Insights/actionGroups/alerts-{base}")
+        require_actions(
+            object_response(health["properties"].get("actions"), "health alert actions").get(
+                "actionGroups"
+            ),
+            action_groups,
+        )
         if settings.managed_prometheus:
             rules = resource(
                 group
@@ -218,9 +268,15 @@ def verify_observability(
                 "MemoryRequestsPressure",
             }
             entries = rules["properties"].get("rules", [])
+            if not isinstance(entries, list) or any(
+                not isinstance(entry, dict) for entry in entries
+            ):
+                raise ValueError("operational alert definitions are malformed")
             if {entry.get("alert") for entry in entries} != expected or any(
                 not entry.get("enabled") or not entry.get("actions") for entry in entries
             ):
                 raise ValueError("operational alerts or notification actions are missing")
+            for entry in entries:
+                require_actions(entry.get("actions"), action_groups)
         report["alerts"] = "definitions-verified-delivery-not-exercised"
     return report

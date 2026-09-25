@@ -99,9 +99,13 @@ def test_public_resolution_is_rejected_for_private_probe(monkeypatch):
 
 @pytest.mark.parametrize("failure", [None, "missing", "old", "unknown"])
 def test_tools_parse_native_versions(monkeypatch, failure):
+    monkeypatch.setenv("ARM_CLIENT_SECRET", "not-a-real-secret")
+    monkeypatch.setenv("TF_CLI_ARGS", "unexpected")
     policy = platform_policy()["tools"]
 
     def execute(arguments, **kwargs):
+        assert "ARM_CLIENT_SECRET" not in kwargs["environment"]
+        assert "TF_CLI_ARGS" not in kwargs["environment"]
         settings = policy[arguments[0]]
         value = ".".join(str(number) for number in settings["minimum"])
         if failure == "old":

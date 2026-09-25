@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 from collections import Counter
@@ -16,7 +17,7 @@ from time import perf_counter, sleep
 from typing import Any, Literal
 from uuid import uuid4
 
-from aiks.azure import AzureSession, require_owned_group
+from aiks.azure import AzureSession, object_response, require_owned_group
 from aiks.config import EnvironmentConfig
 from aiks.engines import bicep, terraform
 from aiks.observability import TelemetryPendingError, verify_observability
@@ -72,8 +73,9 @@ class InfrastructureRuntime:
         if any(path.is_symlink() for path in self.directory.rglob("*")):
             raise ValueError("infrastructure workspace contains symbolic links")
         lock = self.directory / ".operation.lock"
-        with lock.open("a") as handle:
-            lock.chmod(0o600)
+        descriptor = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "a") as handle:
+            os.fchmod(handle.fileno(), 0o600)
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError as error:
@@ -308,10 +310,17 @@ class InfrastructureRuntime:
         self._owned_group(required=False)
         if self.engine == "bicep":
             self._bicep("validate")
-            preview = self._bicep("what-if")
+            preview = object_response(self._bicep("what-if"), "Bicep preview")
             changes = preview.get("changes")
             if not isinstance(changes, list):
                 raise ValueError("Bicep preview did not return verifiable changes")
+            if any(
+                not isinstance(change, dict)
+                or change.get("changeType")
+                not in {"NoChange", "Ignore", "Create", "Modify", "Delete", "Unsupported", "Deploy"}
+                for change in changes
+            ):
+                raise ValueError("Bicep preview contains malformed changes")
             change_types = [
                 change["changeType"]
                 for change in changes
@@ -328,7 +337,10 @@ class InfrastructureRuntime:
                 "-out=environment.tfplan",
                 "-no-color",
             )
-            preview = json.loads(self._terraform("show", "-json", "environment.tfplan"))
+            preview = object_response(
+                json.loads(self._terraform("show", "-json", "environment.tfplan")),
+                "Terraform preview",
+            )
             self._check_terraform_plan(preview)
             changes = preview.get("resource_changes", [])
             change_types = [
@@ -406,6 +418,14 @@ class InfrastructureRuntime:
                 )
             },
         }
+        if self.config.spec.network.private_cluster:
+            zone = (
+                outputs.resource_group.id + "/providers/Microsoft.Network/privateDnsZones/"
+                f"private.{self.config.spec.location}.azmk8s.io"
+            )
+            observed["privateDnsZone"] = resource(zone, "2024-06-01")
+            link = zone + "/virtualNetworkLinks/" + outputs.network.vnet_id.rsplit("/", 1)[-1]
+            observed["privateDnsLink"] = resource(link, "2024-06-01")
         return observed
 
     def _credentials(self, outputs: FoundationOutputs) -> WorkloadRuntime:
@@ -432,6 +452,7 @@ class InfrastructureRuntime:
             self.config, "aks", kubeconfig=path, context=outputs.cluster.name, outputs=outputs
         )
         runtime.directory = self.directory / "workload"
+        runtime.environment = self.azure.environment
         return runtime
 
     def _verify(self, outputs: FoundationOutputs, *, install: bool = False) -> dict[str, Any]:
@@ -498,11 +519,19 @@ class InfrastructureRuntime:
         url = f"https://management.azure.com/subscriptions/{self.azure.subscription}/providers/Microsoft.AlertsManagement/alerts?{query}"
         deadline = perf_counter() + self.config.spec.lifecycle.alert_timeout_seconds
         while True:
-            response = self.azure.json("rest", "--method", "get", "--url", url)
+            response = object_response(
+                self.azure.json("rest", "--method", "get", "--url", url), "alert evidence"
+            )
             if response.get("nextLink"):
                 raise ValueError("alert evidence is paginated and cannot be verified completely")
-            for alert in response.get("value", []):
-                essentials = alert.get("properties", {}).get("essentials", {})
+            entries = response.get("value")
+            if not isinstance(entries, list):
+                raise ValueError("alert evidence response is missing its collection")
+            for alert in entries:
+                properties = object_response(
+                    object_response(alert, "alert").get("properties"), "alert properties"
+                )
+                essentials = object_response(properties.get("essentials"), "alert essentials")
                 if (
                     "ReadinessUnavailable" not in essentials.get("alertRule", "")
                     or essentials.get("monitorCondition") != condition

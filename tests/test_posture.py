@@ -204,6 +204,12 @@ def live_fixture(environment="dev"):
             }
         },
     }
+    observed["privateDnsLink"] = {
+        "properties": {
+            "virtualNetwork": {"id": outputs.network.vnet_id},
+            "registrationEnabled": False,
+        }
+    }
     return config, outputs, observed
 
 
@@ -211,6 +217,19 @@ def live_fixture(environment="dev"):
 def test_complete_observed_foundation(environment):
     config, outputs, observed = live_fixture(environment)
     assert verify_foundation(config, outputs, observed)["identity"] == "verified"
+
+
+@pytest.mark.parametrize("mutation", ["zone", "link"])
+def test_private_api_dns_must_belong_to_foundation(mutation):
+    config, outputs, observed = live_fixture("production")
+    if mutation == "zone":
+        observed["cluster"]["properties"]["apiServerAccessProfile"]["privateDNSZone"] = (
+            "/foreign/zone"
+        )
+    else:
+        observed["privateDnsLink"]["properties"]["virtualNetwork"]["id"] = "/foreign/network"
+    with pytest.raises(ValueError, match="DNS"):
+        verify_foundation(config, outputs, observed)
 
 
 @pytest.mark.parametrize(

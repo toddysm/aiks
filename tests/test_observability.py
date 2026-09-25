@@ -7,7 +7,12 @@ from test_posture import live_fixture
 from test_workload import foundation
 
 from aiks.config import load_environment_config
-from aiks.observability import verify_observability
+from aiks.observability import (
+    prometheus_endpoint,
+    require_actions,
+    require_prometheus_sample,
+    verify_observability,
+)
 
 CONFIG = (
     Path(__file__).resolve().parents[1] / "infrastructure/aks-automatic/config/dev.example.yaml"
@@ -94,11 +99,17 @@ def test_monitoring_configuration_and_samples(environment, failure):
         },
     }
     if environment == "production":
+        action_group = group + f"/providers/Microsoft.Insights/actionGroups/alerts-{base}"
         source.update(
             {
                 outputs.monitoring.azure_monitor_workspace_id: {
                     "properties": {
-                        "defaultIngestionSettings": {"dataCollectionEndpointResourceId": "endpoint"}
+                        "metrics": {
+                            "prometheusQueryEndpoint": outputs.monitoring.prometheus_query_endpoint
+                        },
+                        "defaultIngestionSettings": {
+                            "dataCollectionEndpointResourceId": "endpoint"
+                        },
                     }
                 },
                 prom_rule: {
@@ -132,6 +143,7 @@ def test_monitoring_configuration_and_samples(environment, failure):
                 },
                 group + f"/providers/Microsoft.Insights/activityLogAlerts/health-{base}": {
                     "properties": {
+                        "actions": {"actionGroups": [{"actionGroupId": action_group}]},
                         "enabled": True,
                         "scopes": [outputs.cluster.id],
                         "condition": {"allOf": [{"equals": "ResourceHealth"}]},
@@ -144,7 +156,7 @@ def test_monitoring_configuration_and_samples(environment, failure):
                             {
                                 "alert": name,
                                 "enabled": True,
-                                "actions": [{"actionGroupId": "configured"}],
+                                "actions": [{"actionGroupId": action_group}],
                             }
                             for name in (
                                 "ReadinessUnavailable",
@@ -178,3 +190,42 @@ def test_monitoring_configuration_and_samples(environment, failure):
             )["logs"]
             == "ingesting"
         )
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://other.prometheus.monitor.azure.com",
+        "https://owned.prometheus.monitor.azure.com:8443",
+        "https://owned.prometheus.monitor.azure.com/path",
+    ],
+)
+def test_prometheus_endpoint_is_bound_to_observed_workspace(endpoint):
+    workspace = {
+        "properties": {
+            "metrics": {"prometheusQueryEndpoint": "https://owned.prometheus.monitor.azure.com"}
+        }
+    }
+    with pytest.raises(ValueError):
+        prometheus_endpoint(endpoint, workspace)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        None,
+        [],
+        {"status": "success", "data": None},
+        {"status": "success", "data": {"result": [None]}},
+        {"status": "success", "data": {"result": [{"value": [1]}]}},
+    ],
+)
+def test_malformed_metric_responses_fail_cleanly(response):
+    with pytest.raises(ValueError):
+        require_prometheus_sample(response)
+
+
+@pytest.mark.parametrize("actions", [[], None, [None], [{"actionGroupId": "other"}]])
+def test_notifications_require_exact_configured_groups(actions):
+    with pytest.raises(ValueError):
+        require_actions(actions, {"configured"})
