@@ -79,9 +79,9 @@ def deployment_command(
         "--location",
         config.spec.location,
         "--template-file",
-        str(template.resolve()),
+        str(template.absolute()),
         "--parameters",
-        f"@{parameter_file.resolve()}",
+        f"@{parameter_file.absolute()}",
         *(
             ("--no-pretty-print", "--result-format", "FullResourcePayloads")
             if operation == "what-if"
