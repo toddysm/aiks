@@ -434,8 +434,32 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
     address = str(ip_network(config.spec.network.private_endpoint_subnet_cidr)[4])
     api_address = str(ip_network(config.spec.network.api_server_subnet_cidr)[4])
     frontend = {"privateIPAddress": address}
+    zone_drift = []
 
     def resource(identifier, version):
+        if "/privateDnsZoneGroups/" in identifier:
+            zone = (
+                "privatelink.azurecr.io"
+                if "/pe-acr-" in identifier
+                else "privatelink.vaultcore.azure.net"
+            )
+            zone_id = (
+                outputs.resource_group.id + "/providers/Microsoft.Network/privateDnsZones/" + zone
+            )
+            return {
+                "properties": {
+                    "privateDnsZoneConfigs": [
+                        {"properties": {"privateDnsZoneId": "foreign" if zone_drift else zone_id}}
+                    ]
+                }
+            }
+        if "/virtualNetworkLinks/" in identifier:
+            return {
+                "properties": {
+                    "virtualNetwork": {"id": outputs.network.vnet_id},
+                    "registrationEnabled": False,
+                }
+            }
         if "networkInterfaces" in identifier:
             return {
                 "properties": {"ipConfigurations": [{"properties": {"privateIPAddress": address}}]}
@@ -480,6 +504,10 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
             return {"status": {"addresses": [{"value": address}]}}
 
     runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
+    zone_drift.append(True)
+    with pytest.raises(ValueError, match="DNS-zone binding"):
+        runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
+    zone_drift.clear()
     properties["frontendIPConfigurations"].append(
         {"id": "egress", "properties": {"publicIPAddress": {"id": "public"}}}
     )

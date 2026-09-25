@@ -746,6 +746,44 @@ class InfrastructureRuntime:
                 != "Approved"
             ):
                 raise ValueError(f"{service} private endpoint target/approval mismatch")
+            zone_name = (
+                "privatelink.azurecr.io"
+                if service == "registry"
+                else "privatelink.vaultcore.azure.net"
+            )
+            zone_id = (
+                outputs.resource_group.id
+                + "/providers/Microsoft.Network/privateDnsZones/"
+                + zone_name
+            )
+            endpoint_id = (
+                outputs.resource_group.id
+                + f"/providers/Microsoft.Network/privateEndpoints/pe-{prefix}-{base}"
+            )
+            zone_group = self._resource(endpoint_id + "/privateDnsZoneGroups/default", "2025-01-01")
+            configurations = zone_group["properties"].get("privateDnsZoneConfigs")
+            if not isinstance(configurations, list) or len(configurations) != 1:
+                raise ValueError(f"{service} private endpoint DNS-zone binding drift")
+            zone_properties = object_response(
+                object_response(configurations[0], "private DNS configuration").get("properties"),
+                "private DNS configuration properties",
+            )
+            actual_zone = zone_properties.get("privateDnsZoneId")
+            if not isinstance(actual_zone, str) or actual_zone.lower() != zone_id.lower():
+                raise ValueError(f"{service} private endpoint DNS-zone binding drift")
+            link = self._resource(
+                zone_id + f"/virtualNetworkLinks/pe-{prefix}-{base}", "2024-06-01"
+            )
+            from aiks.posture import assert_properties
+
+            assert_properties(
+                link,
+                {
+                    "properties.virtualNetwork.id": outputs.network.vnet_id,
+                    "properties.registrationEnabled": False,
+                },
+                f"{service} private DNS link",
+            )
             addresses: set[str] = set()
             for reference in endpoint["properties"].get("networkInterfaces", []):
                 interface = self._resource(reference["id"], "2025-01-01")
