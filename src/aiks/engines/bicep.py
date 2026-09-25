@@ -82,6 +82,11 @@ def deployment_command(
         str(template.resolve()),
         "--parameters",
         f"@{parameter_file.resolve()}",
+        *(
+            ("--no-pretty-print", "--result-format", "FullResourcePayloads")
+            if operation == "what-if"
+            else ()
+        ),
         "--only-show-errors",
         "--output",
         "json",

@@ -220,6 +220,9 @@ def test_complete_mocked_lifecycle(runtime, monkeypatch, engine):
             Path(arguments[-1]).write_text("{}")
             return ""
         if arguments[:3] == ("az", "deployment", "sub"):
+            if arguments[3] == "what-if":
+                assert "--no-pretty-print" in arguments
+                assert arguments[arguments.index("--result-format") + 1] == "FullResourcePayloads"
             if arguments[3] == "create":
                 cloud.update(exists=True, instance=runtime.instance)
             return json.dumps(
@@ -348,8 +351,12 @@ def test_resource_reads_and_private_credentials(runtime, monkeypatch, environmen
     observed = runtime._observed(outputs)
     assert observed["cluster"]["id"] == outputs.cluster.id
     if environment == "production":
-        assert observed["privateDnsZone"]["id"].endswith("private.westus3.azmk8s.io")
-        assert observed["privateDnsLink"]["id"].endswith("/virtualNetworkLinks/test")
+        expected_zone = (
+            outputs.resource_group.id
+            + "/providers/Microsoft.Network/privateDnsZones/private.westus3.azmk8s.io"
+        )
+        assert observed["privateDnsZone"]["id"] == expected_zone
+        assert observed["privateDnsLink"]["id"] == expected_zone + "/virtualNetworkLinks/test"
     with runtime.session():
         workload = runtime._credentials(outputs)
         assert workload.context == outputs.cluster.name
@@ -734,6 +741,37 @@ def test_lock_replacement_race_never_follows_symlink(runtime, monkeypatch, tmp_p
         pytest.fail("symlink race must refuse lock acquisition")
     assert target.read_text() == "unchanged"
     assert target.stat().st_mode & 0o777 == 0o644
+
+
+def test_kubeconfig_replacement_does_not_write_through_symlink(runtime, monkeypatch, tmp_path):
+    _config, outputs, _observed = live_fixture()
+    external = tmp_path / "unrelated"
+    external.write_text("unchanged")
+
+    def execute(*arguments, **kwargs):
+        if arguments[:3] == ("az", "aks", "get-credentials"):
+            destination = runtime.directory / "kubeconfig"
+            destination.symlink_to(external)
+            temporary = Path(arguments[arguments.index("--file") + 1])
+            assert temporary != destination
+            temporary.write_text("synthetic kubeconfig")
+        return "Merged context"
+
+    monkeypatch.setattr(runtime, "_run", execute)
+    with runtime.session():
+        runtime._credentials(outputs)
+    assert external.read_text() == "unchanged"
+    assert not (runtime.directory / "kubeconfig").is_symlink()
+    assert (runtime.directory / "kubeconfig").read_text() == "synthetic kubeconfig"
+
+
+def test_credential_artifact_refuses_nonregular_file(runtime, tmp_path):
+    import os
+
+    fifo = tmp_path / "pipe"
+    os.mkfifo(fifo)
+    with pytest.raises(ValueError, match="regular"):
+        runtime._regular_file(fifo)
 
 
 def test_cloud_inventory_must_have_valid_shape(runtime, monkeypatch):

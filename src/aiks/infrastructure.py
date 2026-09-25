@@ -7,6 +7,8 @@ import json
 import os
 import re
 import shutil
+import stat
+import tempfile
 from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -94,6 +96,24 @@ class InfrastructureRuntime:
         if not result.succeeded:
             raise ValueError(f"{self.phase}: {arguments[0]} failed (exit {result.return_code})")
         return result.stdout
+
+    @contextmanager
+    def _temporary_artifact(self, prefix: str) -> Iterator[Path]:
+        with tempfile.TemporaryDirectory(prefix=prefix + "-", dir=self.directory) as directory:
+            path = Path(directory) / "data"
+            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            os.close(descriptor)
+            yield path
+
+    def _regular_file(self, path: Path) -> None:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("credential output must be a private regular file")
+            os.fchmod(descriptor, 0o600)
+        finally:
+            os.close(descriptor)
 
     def _groups(self) -> list[dict[str, Any]]:
         response = self.azure.json("group", "list")
@@ -448,28 +468,35 @@ class InfrastructureRuntime:
 
     def _credentials(self, outputs: FoundationOutputs) -> WorkloadRuntime:
         path = self.directory / "kubeconfig"
-        path.touch(mode=0o600, exist_ok=True)
-        path.chmod(0o600)
-        self._run(
-            "az",
-            "aks",
-            "get-credentials",
-            "--resource-group",
-            outputs.resource_group.name,
-            "--name",
-            outputs.cluster.name,
-            "--file",
-            str(path),
-            "--overwrite-existing",
-            "--format",
-            "exec",
-            "--subscription",
-            self.azure.subscription,
-            "--only-show-errors",
-        )
-        self._run(
-            "kubelogin", "convert-kubeconfig", "--login", "azurecli", "--kubeconfig", str(path)
-        )
+        with self._temporary_artifact("credentials") as temporary:
+            self._run(
+                "az",
+                "aks",
+                "get-credentials",
+                "--resource-group",
+                outputs.resource_group.name,
+                "--name",
+                outputs.cluster.name,
+                "--file",
+                str(temporary),
+                "--overwrite-existing",
+                "--format",
+                "exec",
+                "--subscription",
+                self.azure.subscription,
+                "--only-show-errors",
+            )
+            self._regular_file(temporary)
+            self._run(
+                "kubelogin",
+                "convert-kubeconfig",
+                "--login",
+                "azurecli",
+                "--kubeconfig",
+                str(temporary),
+            )
+            self._regular_file(temporary)
+            os.replace(temporary, path)
         runtime = WorkloadRuntime(
             self.config, "aks", kubeconfig=path, context=outputs.cluster.name, outputs=outputs
         )
@@ -942,9 +969,9 @@ class InfrastructureRuntime:
         if terraform.blob_lease(entry)["status"] != "unlocked":
             raise ValueError("environment state has an active lease")
         lease = str(uuid4())
-        path = self.directory / "empty-state.json"
-        path.touch(mode=0o600, exist_ok=True)
-        path.chmod(0o600)
+        path = self.directory / f"empty-state-{uuid4()}.json"
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        os.close(descriptor)
         backend._blob(
             "lease",
             "acquire",
