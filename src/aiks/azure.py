@@ -6,6 +6,7 @@ import json
 import os
 import re
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from aiks.config import EnvironmentConfig
@@ -70,7 +71,21 @@ class AzureSession:
 
     def json(self, *arguments: str, timeout: float = 120) -> Any:
         command = ["az", *arguments, "--only-show-errors", "--output", "json"]
-        if self.subscription:
+        if (
+            arguments[0] == "rest"
+            and "--url" in arguments
+            and not any(
+                argument == "--resource" or argument.startswith("--resource=")
+                for argument in arguments
+            )
+        ):
+            url = urlsplit(arguments[arguments.index("--url") + 1])
+            if url.scheme == "https" and url.netloc.lower() in {
+                "management.azure.com",
+                "management.azure.com:443",
+            }:
+                command += ["--resource", "https://management.azure.com/"]
+        if self.subscription and arguments[:2] not in {("cloud", "show"), ("extension", "list")}:
             command += ["--subscription", self.subscription]
         result = run_command(command, environment=self.environment, timeout_seconds=timeout)
         if not result.succeeded:

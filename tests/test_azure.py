@@ -46,6 +46,63 @@ def test_context_pins_subscription_and_ignores_injected_credentials(monkeypatch)
     assert "AZURE_USERNAME" not in session.environment
     assert "AZURE_PASSWORD" not in session.environment
     assert calls[-1][0][-2:] == ["--subscription", SUBSCRIPTION]
+    for arguments in (("cloud", "show"), ("extension", "list")):
+        assert session.json(*arguments) == []
+        assert "--subscription" not in calls[-1][0]
+
+
+@pytest.mark.parametrize(
+    "url,resource_arguments,expected",
+    [
+        ("https://management.azure.com/subscriptions", (), "https://management.azure.com/"),
+        ("https://MANAGEMENT.azure.com:443/subscriptions", (), "https://management.azure.com/"),
+        ("http://management.azure.com/subscriptions", (), None),
+        ("https://management.azure.com.example.invalid/subscriptions", (), None),
+        ("https://user@management.azure.com/subscriptions", (), None),
+        ("https://management.azure.com:8443/subscriptions", (), None),
+        ("https://graph.microsoft.com/v1.0/me", (), None),
+        (
+            "https://metrics.example.invalid/api/v1/query",
+            ("--resource", "https://prometheus.monitor.azure.com"),
+            "https://prometheus.monitor.azure.com",
+        ),
+        (
+            "https://management.azure.com/subscriptions",
+            ("--resource", "https://management.core.windows.net/"),
+            "https://management.core.windows.net/",
+        ),
+        (
+            "https://management.azure.com/subscriptions",
+            ("--resource=https://management.core.windows.net/",),
+            None,
+        ),
+    ],
+)
+def test_management_rest_authentication_is_explicit_and_host_scoped(
+    monkeypatch, url, resource_arguments, expected
+):
+    calls = []
+
+    def execute(command, **kwargs):
+        calls.append(command)
+        response = (
+            {"state": "Enabled", "id": SUBSCRIPTION, "tenantId": SUBSCRIPTION}
+            if command[1:3] == ["account", "show"]
+            else {}
+        )
+        return CommandResult(tuple(command), 0, json.dumps(response), "")
+
+    monkeypatch.setattr("aiks.azure.run_command", execute)
+    assert AzureSession().json("rest", "--method", "get", "--url", url, *resource_arguments) == {}
+    command = calls[-1]
+    assert command[-2:] == ["--subscription", SUBSCRIPTION]
+    for argument in resource_arguments:
+        assert argument in command
+    if expected is None:
+        assert "--resource" not in command
+    else:
+        assert command.count("--resource") == 1
+        assert command[command.index("--resource") + 1] == expected
 
 
 @pytest.mark.parametrize(

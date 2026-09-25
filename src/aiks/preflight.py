@@ -105,6 +105,14 @@ def probe_host(host: str, *, private: bool, timeout: float) -> list[str]:
         raise ValueError("endpoint DNS or TCP connectivity could not be verified") from error
 
 
+def _quota_count(value: Any) -> int:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
+        return int(value)
+    raise ValueError("regional core quota is malformed")
+
+
 def cloud_preflight(config: EnvironmentConfig, azure: AzureSession) -> dict[str, Any]:
     policy = platform_policy()
     if config.spec.location not in policy["automaticRegions"]:
@@ -112,27 +120,37 @@ def cloud_preflight(config: EnvironmentConfig, azure: AzureSession) -> dict[str,
     cloud = azure.json("cloud", "show")
     if cloud.get("name") != "AzureCloud":
         raise ValueError("this foundation currently supports Azure public cloud only")
-    providers = azure.json("provider", "list")
+    providers = azure.json(
+        "provider",
+        "list",
+        "--query",
+        "[].{namespace:namespace,registrationState:registrationState,"
+        "resourceTypes:resourceTypes[].{resourceType:resourceType,locations:locations}}",
+    )
     if not isinstance(providers, list):
         raise ValueError("resource provider registration cannot be verified")
     registered = {
-        provider["namespace"]
+        provider["namespace"].casefold()
         for provider in providers
         if provider.get("registrationState") == "Registered"
     }
-    missing = sorted(set(policy["providers"]) - registered)
+    missing = sorted(
+        namespace for namespace in policy["providers"] if namespace.casefold() not in registered
+    )
     if missing:
         raise ValueError(
             "register required resource providers before deployment: " + ", ".join(missing)
         )
     cluster_provider = next(
-        provider for provider in providers if provider["namespace"] == "Microsoft.ContainerService"
+        provider
+        for provider in providers
+        if provider["namespace"].casefold() == "microsoft.containerservice"
     )
     locations: list[str] = next(
         (
             resource.get("locations", [])
             for resource in cluster_provider.get("resourceTypes", [])
-            if resource.get("resourceType") == "managedClusters"
+            if resource.get("resourceType", "").casefold() == "managedclusters"
         ),
         [],
     )
@@ -158,10 +176,10 @@ def cloud_preflight(config: EnvironmentConfig, azure: AzureSession) -> dict[str,
     cores = next(
         (item for item in quota if item.get("name", {}).get("value", "").lower() == "cores"), None
     )
-    if (
-        not cores
-        or cores["limit"] - cores["currentValue"] < config.spec.lifecycle.minimum_available_cores
-    ):
+    if not cores:
+        raise ValueError("insufficient or unverifiable regional core quota")
+    available = _quota_count(cores.get("limit")) - _quota_count(cores.get("currentValue"))
+    if available < config.spec.lifecycle.minimum_available_cores:
         raise ValueError("insufficient or unverifiable regional core quota")
     if config.spec.network.private_cluster:
         if not config.spec.lifecycle.private_probe_hosts:

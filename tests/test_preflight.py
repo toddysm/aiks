@@ -31,9 +31,33 @@ def test_effective_permission_matching(permissions, expected):
 
 
 @pytest.mark.parametrize(
-    "failure", [None, "region", "providers", "permissions", "quota", "extension"]
+    "failure,lowercase,limit,current_value",
+    [
+        (None, False, 100, 0),
+        (None, True, "100", "18"),
+        (None, True, 100, "96"),
+        (None, False, "100", 96),
+        ("region", True, 100, 0),
+        ("providers", True, 100, 0),
+        ("permissions", False, 100, 0),
+        ("extension", False, 100, 0),
+        ("quota", False, 0, 0),
+        ("quota", True, "100", "97"),
+        ("quota", False, 100, 101),
+        ("quota", False, None, 0),
+        ("quota", False, 100, None),
+        ("quota", False, True, 0),
+        ("quota", False, 100, False),
+        ("quota", False, 100.0, 0),
+        ("quota", False, 100, -1),
+        ("quota", False, -1, 0),
+        ("quota", False, "unlimited", 0),
+        ("quota", False, "100.0", 0),
+        ("quota", False, "100", "-1"),
+        ("quota", False, {}, 0),
+    ],
 )
-def test_cloud_preflight_fails_before_mutation(failure):
+def test_cloud_preflight_fails_before_mutation(failure, lowercase, limit, current_value):
     config = load_environment_config(CONFIG)
     policy = platform_policy()
 
@@ -44,15 +68,22 @@ def test_cloud_preflight_fails_before_mutation(failure):
             if args[:2] == ("cloud", "show"):
                 return {"name": "AzureCloud"}
             if args[:2] == ("provider", "list"):
+                assert args[2:] == (
+                    "--query",
+                    "[].{namespace:namespace,registrationState:registrationState,"
+                    "resourceTypes:resourceTypes[].{resourceType:resourceType,locations:locations}}",
+                )
                 return [
                     {
-                        "namespace": provider,
+                        "namespace": provider.lower() if lowercase else provider,
                         "registrationState": "NotRegistered"
                         if failure == "providers"
                         else "Registered",
                         "resourceTypes": [
                             {
-                                "resourceType": "managedClusters",
+                                "resourceType": "managedclusters"
+                                if lowercase
+                                else "managedClusters",
                                 "locations": [] if failure == "region" else ["West US 3"],
                             }
                         ],
@@ -71,8 +102,8 @@ def test_cloud_preflight_fails_before_mutation(failure):
                 return [
                     {
                         "name": {"value": "cores"},
-                        "limit": 0 if failure == "quota" else 100,
-                        "currentValue": 0,
+                        "limit": limit,
+                        "currentValue": current_value,
                     }
                 ]
             pytest.fail("unexpected or mutating cloud call")
