@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -11,7 +12,7 @@ import stat
 import tempfile
 from collections import Counter
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from ipaddress import ip_address, ip_network
 from pathlib import Path
@@ -64,28 +65,72 @@ class InfrastructureRuntime:
             self.versions = check_tools(selected)
 
     @contextmanager
+    def _directory_handle(self, path: Path) -> Iterator[int]:
+        parts = path.absolute().parts
+        descriptor = os.open(parts[0], os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for index, part in enumerate(parts[1:]):
+                with suppress(FileExistsError):
+                    os.mkdir(part, mode=0o700, dir_fd=descriptor)
+                child = os.open(
+                    part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
+                )
+                os.close(descriptor)
+                descriptor = child
+                if index >= len(parts) - 4:
+                    os.fchmod(descriptor, 0o700)
+            yield descriptor
+        except OSError as error:
+            if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+                raise ValueError("infrastructure workspace must not use symbolic links") from error
+            raise
+        finally:
+            os.close(descriptor)
+
+    @contextmanager
     def session(self) -> Iterator[None]:
         if fcntl is None:
             raise ValueError("infrastructure operations require POSIX file locking")
-        for parent in (self.directory.parent.parent, self.directory.parent, self.directory):
-            if parent.is_symlink():
-                raise ValueError("infrastructure workspace must not use symbolic links")
-            parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            parent.chmod(0o700)
-        if any(path.is_symlink() for path in self.directory.rglob("*")):
-            raise ValueError("infrastructure workspace contains symbolic links")
-        lock = self.directory / ".operation.lock"
-        descriptor = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(descriptor, "a") as handle:
-            os.fchmod(handle.fileno(), 0o600)
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError as error:
-                raise ValueError("another operation holds this environment workspace") from error
-            try:
-                yield
-            finally:
-                fcntl.flock(handle, fcntl.LOCK_UN)
+        original_directory = self.directory
+        absolute_directory = original_directory.absolute()
+        previous = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with self._directory_handle(absolute_directory) as directory:
+                descriptor = os.open(
+                    ".operation.lock",
+                    os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=directory,
+                )
+                with os.fdopen(descriptor, "a") as handle:
+                    os.fchmod(handle.fileno(), 0o600)
+                    try:
+                        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except OSError as error:
+                        raise ValueError(
+                            "another operation holds this environment workspace"
+                        ) from error
+                    os.fchdir(directory)
+                    self.directory = Path(".")
+                    if not os.path.samestat(
+                        os.stat(absolute_directory, follow_symlinks=False), os.fstat(directory)
+                    ):
+                        raise ValueError(
+                            "infrastructure workspace directory changed during acquisition"
+                        )
+                    if any(path.is_symlink() for path in self.directory.rglob("*")):
+                        raise ValueError("infrastructure workspace contains symbolic links")
+                    yield
+                    if not os.path.samestat(
+                        os.stat(absolute_directory, follow_symlinks=False), os.fstat(directory)
+                    ):
+                        raise ValueError(
+                            "infrastructure workspace directory changed during operation"
+                        )
+        finally:
+            self.directory = original_directory
+            os.fchdir(previous)
+            os.close(previous)
 
     def _run(self, *arguments: str, timeout: float | None = None) -> str:
         result = run_command(
@@ -240,7 +285,7 @@ class InfrastructureRuntime:
         if self.engine == "terraform":
             from aiks.state import StateBackend
 
-            backend = StateBackend(self.config)
+            backend = StateBackend(self.config, environment=self.azure.environment)
             if backend.subscription != self.azure.subscription:
                 raise ValueError("Azure context changed during backend verification")
             backend.status()
@@ -1118,7 +1163,7 @@ class InfrastructureRuntime:
     def _remove_empty_environment_state(self) -> None:
         from aiks.state import StateBackend
 
-        backend = StateBackend(self.config)
+        backend = StateBackend(self.config, environment=self.azure.environment)
         if backend.subscription != self.azure.subscription:
             raise ValueError("Azure context changed before environment-state cleanup")
         key = terraform.backend(self.config)["key"]

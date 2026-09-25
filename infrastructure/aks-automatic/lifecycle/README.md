@@ -94,6 +94,11 @@ reservation or a guarantee that an allocation will succeed.
 ## Ownership and Artifacts
 
 Each environment has a private, locked workspace under `.aiks/infra/<hash>`.
+The synchronous command pins that directory through verified no-follow directory
+descriptors and temporarily uses it as the process working directory. The caller's
+directory is restored on success or failure. Do not run lifecycle methods in
+parallel threads within one Python process; use separate CLI processes instead.
+Relative tool/configuration paths are captured before entering the workspace.
 The group carries `aiks-owner`, `aiks-engine`, and a random `aiks-instance` tag.
 Existing untagged environments and cross-engine adoption are refused. Old
 standalone engine deployments need a separately reviewed adoption/migration;

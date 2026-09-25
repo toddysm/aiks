@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from aiks.azure import AzureSession, require_owned_group
+from aiks.azure import AzureSession, cli_environment, require_owned_group
 from aiks.config import load_environment_config
 from aiks.process import CommandResult
 
@@ -13,6 +13,15 @@ SUBSCRIPTION = "11111111-1111-4111-8111-111111111111"
 CONFIG = (
     Path(__file__).resolve().parents[1] / "infrastructure/aks-automatic/config/dev.example.yaml"
 )
+
+
+def test_relative_tool_configuration_is_captured_before_workspace_change(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", "tools:/usr/bin")
+    monkeypatch.setenv("AZURE_CONFIG_DIR", "azure-config")
+    environment = cli_environment()
+    assert environment["PATH"].split(":")[0] == str(tmp_path / "tools")
+    assert environment["AZURE_CONFIG_DIR"] == str(tmp_path / "azure-config")
 
 
 def test_context_pins_subscription_and_ignores_injected_credentials(monkeypatch):

@@ -316,7 +316,7 @@ def test_only_empty_environment_state_is_removed(runtime, monkeypatch, blocked):
             elif arguments[0] == "delete":
                 deleted.append(key)
 
-    monkeypatch.setattr("aiks.state.StateBackend", lambda config: Backend())
+    monkeypatch.setattr("aiks.state.StateBackend", lambda config, **kwargs: Backend())
     with runtime.session():
         if blocked:
             with pytest.raises(ValueError, match="not empty"):
@@ -637,7 +637,7 @@ def test_runtime_preflight_checks_backend_without_bootstrapping(runtime, monkeyp
         def status(self):
             checked.append(True)
 
-    monkeypatch.setattr("aiks.state.StateBackend", lambda config: Backend())
+    monkeypatch.setattr("aiks.state.StateBackend", lambda config, **kwargs: Backend())
     assert runtime.preflight()["engine"] == engine
     assert bool(checked) is (engine == "terraform")
 
@@ -736,15 +736,40 @@ def test_lock_replacement_race_never_follows_symlink(runtime, monkeypatch, tmp_p
     def racing_open(path, flags, mode=0o777, **kwargs):
         path = Path(path)
         if path.name == ".operation.lock":
-            path.unlink(missing_ok=True)
-            path.symlink_to(target)
+            lock_path = runtime.directory / path.name
+            lock_path.unlink(missing_ok=True)
+            lock_path.symlink_to(target)
         return original(path, flags, mode, **kwargs)
 
     monkeypatch.setattr("aiks.infrastructure.os.open", racing_open)
-    with pytest.raises(OSError), runtime.session():
+    with pytest.raises((OSError, ValueError)), runtime.session():
         pytest.fail("symlink race must refuse lock acquisition")
     assert target.read_text() == "unchanged"
     assert target.stat().st_mode & 0o777 == 0o644
+
+
+def test_workspace_component_swap_does_not_redirect_lock(runtime, monkeypatch, tmp_path):
+    import os
+
+    external = tmp_path / "external"
+    external.mkdir()
+    workspace = runtime.directory
+    moved = workspace.with_name(workspace.name + "-moved")
+    previous = Path.cwd()
+    original = os.open
+
+    def racing_open(path, flags, mode=0o777, **kwargs):
+        if str(path) == ".operation.lock":
+            workspace.rename(moved)
+            workspace.symlink_to(external, target_is_directory=True)
+        return original(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr("aiks.infrastructure.os.open", racing_open)
+    with pytest.raises(ValueError, match="directory changed"), runtime.session():
+        pytest.fail("replaced directory must not receive artifacts")
+    assert not list(external.iterdir())
+    assert (moved / ".operation.lock").is_file()
+    assert Path.cwd() == previous
 
 
 def test_kubeconfig_replacement_does_not_write_through_symlink(runtime, monkeypatch, tmp_path):

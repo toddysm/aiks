@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import shutil
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from time import sleep
@@ -37,12 +37,18 @@ LOGGER = logging.getLogger(__name__)
 
 
 class StateBackend:
-    def __init__(self, config: EnvironmentConfig, *, directory: Path | None = None) -> None:
+    def __init__(
+        self,
+        config: EnvironmentConfig,
+        *,
+        directory: Path | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> None:
         self.config = config
         self.subscription = ""
         self.environment = {
             key: value
-            for key, value in os.environ.items()
+            for key, value in (environment if environment is not None else os.environ).items()
             if not key.startswith(
                 (
                     "ARM_",

@@ -14,7 +14,7 @@ from aiks.process import run_command
 
 
 def cli_environment() -> dict[str, str]:
-    return {
+    environment = {
         name: value
         for name, value in os.environ.items()
         if not name.startswith(
@@ -28,6 +28,15 @@ def cli_environment() -> dict[str, str]:
             )
         )
     }
+    if "PATH" in environment:
+        environment["PATH"] = os.pathsep.join(
+            os.path.abspath(os.path.expanduser(part or "."))
+            for part in environment["PATH"].split(os.pathsep)
+        )
+    for name in ("AZURE_CONFIG_DIR", "AZURE_EXTENSION_DIR", "DOCKER_CONFIG", "HOME"):
+        if name in environment:
+            environment[name] = os.path.abspath(os.path.expanduser(environment[name] or "."))
+    return environment
 
 
 def object_response(value: Any, category: str) -> dict[str, Any]:
