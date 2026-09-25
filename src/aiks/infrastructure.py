@@ -680,15 +680,16 @@ class InfrastructureRuntime:
                     object_response(alert, "alert").get("properties"), "alert properties"
                 )
                 essentials = object_response(properties.get("essentials"), "alert essentials")
+                rule = essentials.get("alertRule")
+                target = essentials.get("targetResource")
+                if not isinstance(rule, str) or not isinstance(target, str):
+                    raise ValueError("alert identity metadata is malformed")
                 if (
-                    "ReadinessUnavailable" not in essentials.get("alertRule", "")
+                    "ReadinessUnavailable" not in rule
                     or essentials.get("monitorCondition") != condition
                 ):
                     continue
-                if (
-                    essentials.get("targetResource", "").lower()
-                    != outputs.monitoring.azure_monitor_workspace_id.lower()
-                ):
+                if target.lower() != outputs.monitoring.azure_monitor_workspace_id.lower():
                     continue
                 try:
                     changed = datetime.fromisoformat(
@@ -932,6 +933,13 @@ class InfrastructureRuntime:
             for resource in resources
         ):
             raise ValueError("resource graph inventory entries are malformed")
+        group_id = outputs.resource_group.id.lower()
+        if any(
+            resource["id"].lower() != group_id
+            and not resource["id"].lower().startswith(group_id + "/")
+            for resource in resources
+        ):
+            raise ValueError("resource graph inventory includes a resource outside the environment")
         required = {
             outputs.cluster.id.lower(),
             outputs.registry.id.lower(),

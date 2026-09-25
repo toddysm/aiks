@@ -127,7 +127,12 @@ def cloud_preflight(config: EnvironmentConfig, azure: AzureSession) -> dict[str,
         "[].{namespace:namespace,registrationState:registrationState,"
         "resourceTypes:resourceTypes[].{resourceType:resourceType,locations:locations}}",
     )
-    if not isinstance(providers, list):
+    if not isinstance(providers, list) or any(
+        not isinstance(provider, dict)
+        or not isinstance(provider.get("namespace"), str)
+        or not provider["namespace"]
+        for provider in providers
+    ):
         raise ValueError("resource provider registration cannot be verified")
     registered = {
         provider["namespace"].casefold()

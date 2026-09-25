@@ -16,6 +16,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from aiks.azure import cli_environment
 from aiks.config import EnvironmentConfig
 from aiks.engines.terraform import write_json
 from aiks.outputs import FoundationOutputs
@@ -106,7 +107,7 @@ class WorkloadRuntime:
         self.outputs = outputs
         self.name = config.spec.local.kind_cluster_name
         self.timeout = config.spec.workload.timeout_seconds
-        self.environment: dict[str, str] | None = None
+        self.environment = cli_environment()
         self.directory = Path.cwd() / ".aiks" / "local" / self.name
         self.kubeconfig = kubeconfig or self.directory / "kubeconfig"
         self.context = context or f"kind-{self.name}"

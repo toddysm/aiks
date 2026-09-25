@@ -644,7 +644,23 @@ def test_resource_graph_sanitizes_inventory(runtime, monkeypatch):
         result = runtime._snapshot(outputs)
     assert result["microsoft.containerregistry/registries"] == 1
     assert SUBSCRIPTION not in (runtime.directory / "inventory.json").read_text()
-    resources.append({"id": "unrelated", "type": "Microsoft.Compute/virtualMachines"})
+    resources.append(
+        {
+            "id": outputs.resource_group.id
+            + "-foreign/providers/Microsoft.Network/networkInterfaces/test",
+            "type": "Microsoft.Network/networkInterfaces",
+        }
+    )
+    with pytest.raises(ValueError, match="outside the environment"), runtime.session():
+        runtime._snapshot(outputs)
+    resources.pop()
+    resources.append(
+        {
+            "id": outputs.resource_group.id
+            + "/providers/Microsoft.Compute/virtualMachines/unexpected",
+            "type": "Microsoft.Compute/virtualMachines",
+        }
+    )
     with pytest.raises(ValueError, match="unexpected resource type"), runtime.session():
         runtime._snapshot(outputs)
 
@@ -707,6 +723,25 @@ def test_alert_drill_always_restores_replicas(runtime, monkeypatch, fail):
         assert runtime.exercise_alerts(confirmed_environment="dev")["replicasRestored"]
     assert commands[0][-1] == "--replicas=0"
     assert commands[-1][-1] == "--replicas=2"
+
+
+@pytest.mark.parametrize("field", ["targetResource", "alertRule"])
+@pytest.mark.parametrize("value", [None, 1, []])
+def test_alert_identity_metadata_requires_strings(runtime, monkeypatch, field, value):
+    _config, outputs, _observed = live_fixture("production")
+    essentials = {
+        "alertRule": "ReadinessUnavailable",
+        "monitorCondition": "Fired",
+        "targetResource": outputs.monitoring.azure_monitor_workspace_id,
+    }
+    essentials[field] = value
+    monkeypatch.setattr(
+        runtime.azure,
+        "json",
+        lambda *args: {"value": [{"properties": {"essentials": essentials}}]},
+    )
+    with pytest.raises(ValueError, match="alert identity"):
+        runtime._wait_alert(outputs, "Fired", datetime.now(UTC))
 
 
 @pytest.mark.parametrize("failure", [None, "stale", "paginated"])

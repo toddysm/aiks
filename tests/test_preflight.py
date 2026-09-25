@@ -126,6 +126,19 @@ def test_cloud_context_requires_an_object(response):
         cloud_preflight(load_environment_config(CONFIG), Session())
 
 
+@pytest.mark.parametrize("provider", [None, [], {}, {"namespace": None}, {"namespace": 1}])
+def test_provider_metadata_requires_named_objects(provider):
+    class Session:
+        def json(self, *args):
+            if args == ("cloud", "show"):
+                return {"name": "AzureCloud"}
+            assert args[:2] == ("provider", "list")
+            return [provider]
+
+    with pytest.raises(ValueError, match="resource provider"):
+        cloud_preflight(load_environment_config(CONFIG), Session())
+
+
 def test_public_resolution_is_rejected_for_private_probe(monkeypatch):
     monkeypatch.setattr(
         "aiks.preflight.socket.getaddrinfo",
