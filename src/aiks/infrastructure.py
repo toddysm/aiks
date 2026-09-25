@@ -132,11 +132,14 @@ class InfrastructureRuntime:
             os.fchdir(previous)
             os.close(previous)
 
-    def _run(self, *arguments: str, timeout: float | None = None) -> str:
+    def _run(
+        self, *arguments: str, timeout: float | None = None, pass_fds: tuple[int, ...] = ()
+    ) -> str:
         result = run_command(
             arguments,
             environment=self.azure.environment,
             timeout_seconds=timeout or self.config.spec.lifecycle.deployment_timeout_seconds,
+            pass_fds=pass_fds,
         )
         if not result.succeeded:
             raise ValueError(f"{self.phase}: {arguments[0]} failed (exit {result.return_code})")
@@ -242,18 +245,38 @@ class InfrastructureRuntime:
         compiled = self.directory / "template.json"
         with bicep.template_path() as template:
             if operation == "validate":
-                self._run("bicep", "build", str(template), "--outfile", str(compiled))
-                compiled.chmod(0o600)
+                with tempfile.TemporaryFile(mode="w+b", dir=self.directory) as handle:
+                    self._run(
+                        "bicep",
+                        "build",
+                        str(template),
+                        "--outfile",
+                        f"/dev/fd/{handle.fileno()}",
+                        pass_fds=(handle.fileno(),),
+                    )
+                    handle.seek(0)
+                    terraform.write_json(
+                        compiled, object_response(json.load(handle), "compiled Bicep template")
+                    )
         if not compiled.is_file():
             raise ValueError("compile and validate the Bicep template before execution")
-        command = bicep.deployment_command(
-            operation,
-            config=self.config,
-            subscription_id=self.azure.subscription,
-            template=compiled,
-            parameter_file=parameters,
-        )
-        return json.loads(self._run(*command))
+        with ExitStack() as stack:
+            descriptors: list[int] = []
+            for artifact in (compiled, parameters):
+                descriptor = os.open(artifact, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                stack.callback(os.close, descriptor)
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    raise ValueError("deployment input must be a private regular file")
+                descriptors.append(descriptor)
+            command = bicep.deployment_command(
+                operation,
+                config=self.config,
+                subscription_id=self.azure.subscription,
+                template=Path(f"/dev/fd/{descriptors[0]}"),
+                parameter_file=Path(f"/dev/fd/{descriptors[1]}"),
+            )
+            return json.loads(self._run(*command, pass_fds=tuple(descriptors)))
 
     def _terraform(self, *arguments: str) -> str:
         try:

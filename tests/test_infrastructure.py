@@ -136,6 +136,33 @@ def test_cross_engine_group_refuses_before_plan(runtime, monkeypatch):
         runtime.plan()
 
 
+def test_bicep_handoff_uses_descriptors_and_atomic_output(runtime, monkeypatch, tmp_path):
+    external = tmp_path / "external-template"
+    external.write_text("preserve")
+    document = {"properties": {"apiKey": "Disabled"}}
+
+    def execute(*arguments, **kwargs):
+        if arguments[0] == "bicep":
+            descriptor = kwargs["pass_fds"][0]
+            assert arguments[-1] == f"/dev/fd/{descriptor}"
+            (runtime.directory / "template.json").symlink_to(external)
+            Path(arguments[-1]).write_text(json.dumps(document))
+            return ""
+        assert arguments[:3] == ("az", "deployment", "sub")
+        template_path = arguments[arguments.index("--template-file") + 1]
+        parameter_path = arguments[arguments.index("--parameters") + 1]
+        assert template_path == f"/dev/fd/{kwargs['pass_fds'][0]}"
+        assert parameter_path == f"@/dev/fd/{kwargs['pass_fds'][1]}"
+        assert json.loads(Path(template_path).read_text()) == document
+        return "{}"
+
+    monkeypatch.setattr(runtime, "_run", execute)
+    with runtime.session():
+        assert runtime._bicep("validate") == {}
+    assert external.read_text() == "preserve"
+    assert not (runtime.directory / "template.json").is_symlink()
+
+
 def test_environment_workspace_is_locked(runtime):
     with runtime.session(), pytest.raises(ValueError, match="another operation"), runtime.session():
         pass
