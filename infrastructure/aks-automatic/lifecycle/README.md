@@ -111,7 +111,9 @@ points for acceptance evidence; audit them before sharing. The default kubeconfi
 is not modified, and local cluster-admin credentials are not requested.
 
 Normal deployment refuses Terraform replacement/deletion actions and unverifiable
-or destructive Bicep preview changes. Review any intended migration separately.
+or destructive Bicep preview changes, including nested removals/array replacements.
+Bicep scalar modifications are conservatively limited to tags and log retention;
+other property modifications require separate review. Review any intended migration separately.
 Repeat `plan` after a successful deployment to record whether `noOp` is true, then
 repeat deployment and verification. Do not label unexplained differences clean.
 
@@ -133,6 +135,10 @@ be investigated, not bypassed. Inherited subscription access is outside the exac
 environment role inventory and still needs operator security review.
 
 ## Alert Exercise
+
+The production frontend check rejects public inbound or unclassified frontends
+even when the Gateway itself has a valid private address. Explicit outbound-only
+frontends may remain for cluster egress; they do not expose the ingress service.
 
 ```bash
 aiks infra exercise-alerts --config .aiks/production.yaml --engine terraform \

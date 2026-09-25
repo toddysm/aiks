@@ -60,6 +60,65 @@ def test_malformed_preview_is_a_structured_failure(runtime, monkeypatch, respons
         runtime.plan()
 
 
+@pytest.mark.parametrize(
+    "delta",
+    [
+        None,
+        [],
+        [
+            {
+                "path": "properties.networkProfile",
+                "propertyChangeType": "Modify",
+                "children": [{"path": "podCidr", "propertyChangeType": "Delete"}],
+            }
+        ],
+        [{"path": "properties.networkProfile.podCidr", "propertyChangeType": "Modify"}],
+        [{"path": "properties", "propertyChangeType": "Array"}],
+    ],
+)
+def test_bicep_nested_destructive_preview_is_refused(runtime, monkeypatch, delta):
+    monkeypatch.setattr(runtime, "_preflight", lambda: {})
+    monkeypatch.setattr(
+        runtime, "_bicep", lambda *args: {"changes": [{"changeType": "Modify", "delta": delta}]}
+    )
+    with pytest.raises(ValueError):
+        runtime.plan()
+
+
+def test_bicep_recognized_metadata_delta_is_allowed(runtime):
+    runtime._check_bicep_delta(
+        [
+            {
+                "path": "tags",
+                "propertyChangeType": "Modify",
+                "children": [{"path": "tags.owner", "propertyChangeType": "Modify"}],
+            }
+        ]
+    )
+
+
+def test_partial_cleanup_requires_owner_tag(runtime, monkeypatch):
+    _config, outputs, _observed = live_fixture()
+    group = {
+        "id": outputs.resource_group.id,
+        "name": outputs.resource_group.name,
+        "tags": {"aiks-instance": "instance"},
+    }
+    monkeypatch.setattr(
+        runtime.azure,
+        "json",
+        lambda *args: [
+            {"tags": {"aiks-instance": "instance", "aiks-engine": "bicep", "aiks-owner": "other"}}
+        ],
+    )
+    with runtime.session():
+        (runtime.directory / "intent.json").write_text(
+            json.dumps({"engine": "bicep", "owner": runtime.owner, "instance": "instance"})
+        )
+        with pytest.raises(ValueError, match="ownership"):
+            runtime._destroy_partial(group, "dev", False)
+
+
 def test_cross_engine_group_refuses_before_plan(runtime, monkeypatch):
     group = {
         "name": "rg-aiks-dev-dev-abcdefgh",
@@ -280,7 +339,12 @@ def test_resource_reads_and_private_credentials(runtime, monkeypatch, environmen
         return None
 
     monkeypatch.setattr(runtime.azure, "json", azure)
-    monkeypatch.setattr(runtime, "_run", lambda *args, **kwargs: "")
+    commands = []
+    monkeypatch.setattr(
+        runtime,
+        "_run",
+        lambda *args, **kwargs: commands.append(args) or "Merged context into private file",
+    )
     observed = runtime._observed(outputs)
     assert observed["cluster"]["id"] == outputs.cluster.id
     if environment == "production":
@@ -291,6 +355,8 @@ def test_resource_reads_and_private_credentials(runtime, monkeypatch, environmen
         assert workload.context == outputs.cluster.name
         assert workload.environment is runtime.azure.environment
         assert workload.kubeconfig.stat().st_mode & 0o777 == 0o600
+        assert commands[0][:3] == ("az", "aks", "get-credentials")
+        assert "--subscription" in commands[0]
     monkeypatch.setattr(runtime.azure, "json", lambda *args: {"id": "other"})
     with pytest.raises(ValueError, match="identity"):
         runtime._resource(outputs.cluster.id, "2026-04-01")
@@ -390,12 +456,14 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
         "aiks.infrastructure.probe_host",
         lambda host, **kwargs: [api_address if host == outputs.cluster.fqdn else address],
     )
+    properties = {
+        "frontendIPConfigurations": [{"id": "private", "properties": frontend}],
+        "loadBalancingRules": [{"properties": {"frontendIPConfiguration": {"id": "private"}}}],
+    }
     monkeypatch.setattr(
         runtime.azure,
         "json",
-        lambda *args: {
-            "value": [{"properties": {"frontendIPConfigurations": [{"properties": frontend}]}}]
-        },
+        lambda *args: {"value": [{"properties": properties}]},
     )
 
     class Workload:
@@ -403,6 +471,21 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
             return {"status": {"addresses": [{"value": address}]}}
 
     runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
+    properties["frontendIPConfigurations"].append(
+        {"id": "egress", "properties": {"publicIPAddress": {"id": "public"}}}
+    )
+    properties["outboundRules"] = [{"properties": {"frontendIPConfigurations": [{"id": "egress"}]}}]
+    runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
+    properties["loadBalancingRules"].append(
+        {"properties": {"frontendIPConfiguration": {"id": "egress"}}}
+    )
+    with pytest.raises(ValueError, match="public inbound"):
+        runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
+    properties["loadBalancingRules"].pop()
+    del properties["outboundRules"]
+    with pytest.raises(ValueError, match="public inbound"):
+        runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
+    properties["frontendIPConfigurations"].pop()
     frontend["publicIPAddress"] = {"id": "public"}
     with pytest.raises(ValueError, match="public"):
         runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
@@ -576,7 +659,15 @@ def test_partial_cleanup_requires_verified_deletion(runtime, monkeypatch, engine
 
     def azure(*arguments):
         if arguments[:2] == ("resource", "list"):
-            return [{"tags": {"aiks-instance": "instance", "aiks-engine": engine}}]
+            return [
+                {
+                    "tags": {
+                        "aiks-instance": "instance",
+                        "aiks-engine": engine,
+                        "aiks-owner": runtime.owner,
+                    }
+                }
+            ]
         if arguments[:2] == ("group", "exists"):
             return not deleted
         pytest.fail("unexpected call")

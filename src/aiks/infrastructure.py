@@ -328,6 +328,9 @@ class InfrastructureRuntime:
             ]
             if any(kind in {"Delete", "Unsupported", "Deploy"} for kind in change_types):
                 raise ValueError("preview contains destructive or unverifiable changes")
+            for change in changes:
+                if change["changeType"] == "Modify":
+                    self._check_bicep_delta(change.get("delta"))
         else:
             self._prepare_terraform()
             self._terraform(
@@ -379,6 +382,21 @@ class InfrastructureRuntime:
                     raise ValueError(
                         "Terraform plan references a resource outside the owned environment"
                     )
+
+    def _check_bicep_delta(self, deltas: Any) -> None:
+        if not isinstance(deltas, list) or not deltas:
+            raise ValueError("modified Bicep resource lacks verifiable property deltas")
+        for delta in deltas:
+            delta = object_response(delta, "Bicep property delta")
+            kind, path = delta.get("propertyChangeType"), delta.get("path")
+            if kind not in {"Create", "Modify", "NoEffect"} or not isinstance(path, str):
+                raise ValueError("Bicep property removal/replacement requires separate review")
+            if delta.get("children"):
+                self._check_bicep_delta(delta["children"])
+            elif kind == "Modify" and not (
+                path.startswith("tags.") or path == "properties.retentionInDays"
+            ):
+                raise ValueError("Bicep property modification requires separate review")
 
     def _resource(self, resource_id: str, api_version: str) -> dict[str, Any]:
         value = self.azure.json(
@@ -432,7 +450,8 @@ class InfrastructureRuntime:
         path = self.directory / "kubeconfig"
         path.touch(mode=0o600, exist_ok=True)
         path.chmod(0o600)
-        self.azure.json(
+        self._run(
+            "az",
             "aks",
             "get-credentials",
             "--resource-group",
@@ -444,6 +463,9 @@ class InfrastructureRuntime:
             "--overwrite-existing",
             "--format",
             "exec",
+            "--subscription",
+            self.azure.subscription,
+            "--only-show-errors",
         )
         self._run(
             "kubelogin", "convert-kubeconfig", "--login", "azurecli", "--kubeconfig", str(path)
@@ -667,9 +689,31 @@ class InfrastructureRuntime:
             "--url",
             f"https://management.azure.com/subscriptions/{self.azure.subscription}/resourceGroups/{node_group}/providers/Microsoft.Network/loadBalancers?api-version=2025-01-01",
         )
+        load_balancers = response.get("value", [])
+        for load_balancer in load_balancers:
+            properties = load_balancer["properties"]
+            ingress_ids = {
+                rule["properties"]["frontendIPConfiguration"]["id"].lower()
+                for rule in properties.get("loadBalancingRules", [])
+                + properties.get("inboundNatRules", [])
+            }
+            outbound_ids = {
+                reference["id"].lower()
+                for rule in properties.get("outboundRules", [])
+                for reference in rule["properties"].get("frontendIPConfigurations", [])
+            }
+            if any(
+                frontend["properties"].get("publicIPAddress")
+                and (
+                    frontend.get("id", "").lower() in ingress_ids
+                    or frontend.get("id", "").lower() not in outbound_ids
+                )
+                for frontend in properties.get("frontendIPConfigurations", [])
+            ):
+                raise ValueError("production load balancer exposes a public inbound frontend")
         frontends = [
             frontend["properties"]
-            for load_balancer in response.get("value", [])
+            for load_balancer in load_balancers
             for frontend in load_balancer["properties"].get("frontendIPConfigurations", [])
         ]
         gateway = runtime._get("gateway", "readiness")
@@ -1054,6 +1098,7 @@ class InfrastructureRuntime:
             if (
                 tags.get("aiks-instance") != intent["instance"]
                 or tags.get("aiks-engine") != self.engine
+                or tags.get("aiks-owner") != self.owner
             ):
                 raise ValueError("partial cleanup found a resource without verifiable ownership")
         self.phase = "partial-resource-cleanup"
