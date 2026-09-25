@@ -496,6 +496,9 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
     frontend["publicIPAddress"] = {"id": "public"}
     with pytest.raises(ValueError, match="public"):
         runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
+    monkeypatch.setattr(runtime.azure, "json", lambda *args: {"value": [], "nextLink": "more"})
+    with pytest.raises(ValueError, match="incomplete"):
+        runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
 
 
 def test_resource_graph_sanitizes_inventory(runtime, monkeypatch):
@@ -920,3 +923,17 @@ def test_child_collection_requires_complete_structured_response(
 def test_malformed_terraform_change_fails_cleanly(runtime, change):
     with pytest.raises(ValueError):
         runtime._check_terraform_plan({"resource_changes": [change]})
+
+
+def test_terraform_missing_change_collection_is_not_a_noop(runtime):
+    with pytest.raises(ValueError, match="collection"):
+        runtime._check_terraform_plan({})
+
+
+@pytest.mark.parametrize("action", ["create", "update"])
+def test_destroy_plan_cannot_apply_noncleanup_actions(runtime, monkeypatch, action):
+    monkeypatch.setattr(runtime, "_owned_group", lambda **kwargs: {})
+    with pytest.raises(ValueError, match="non-cleanup"):
+        runtime._check_terraform_plan(
+            {"resource_changes": [{"change": {"actions": [action]}}]}, destroy=True
+        )

@@ -383,7 +383,7 @@ class InfrastructureRuntime:
 
     def _check_terraform_plan(self, plan: dict[str, Any], *, destroy: bool = False) -> None:
         plan = object_response(plan, "Terraform plan")
-        resources = plan.get("resource_changes", [])
+        resources = plan.get("resource_changes")
         if not isinstance(resources, list):
             raise ValueError("Terraform resource changes must be a collection")
         group = self._owned_group(required=destroy)
@@ -732,14 +732,11 @@ class InfrastructureRuntime:
         ):
             raise ValueError("private cluster API resolves outside its configured API subnet")
         node_group = observed["cluster"]["properties"]["nodeResourceGroup"]
-        response = self.azure.json(
-            "rest",
-            "--method",
-            "get",
-            "--url",
-            f"https://management.azure.com/subscriptions/{self.azure.subscription}/resourceGroups/{node_group}/providers/Microsoft.Network/loadBalancers?api-version=2025-01-01",
+        load_balancers = self._collection(
+            f"/subscriptions/{self.azure.subscription}/resourceGroups/{node_group}"
+            "/providers/Microsoft.Network/loadBalancers",
+            "2025-01-01",
         )
-        load_balancers = response.get("value", [])
         for load_balancer in load_balancers:
             properties = load_balancer["properties"]
             ingress_ids = {
