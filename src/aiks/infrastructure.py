@@ -12,7 +12,7 @@ import stat
 import tempfile
 from collections import Counter
 from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from contextlib import ExitStack, contextmanager, suppress
 from datetime import UTC, datetime
 from ipaddress import ip_address, ip_network
 from pathlib import Path
@@ -143,12 +143,25 @@ class InfrastructureRuntime:
         return result.stdout
 
     @contextmanager
-    def _temporary_artifact(self, prefix: str) -> Iterator[Path]:
-        with tempfile.TemporaryDirectory(prefix=prefix + "-", dir=self.directory) as directory:
-            path = Path(directory) / "data"
-            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-            os.close(descriptor)
-            yield path
+    def _temporary_artifact(self, prefix: str) -> Iterator[tuple[Path, int]]:
+        with ExitStack() as stack:
+            previous = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+            stack.callback(os.close, previous)
+            workspace = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            stack.callback(os.close, workspace)
+            with tempfile.TemporaryDirectory(prefix=prefix + "-", dir=self.directory) as name:
+                directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                try:
+                    os.fchdir(directory)
+                    path = Path("data")
+                    descriptor = os.open(
+                        path, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600
+                    )
+                    os.close(descriptor)
+                    yield path, workspace
+                finally:
+                    os.fchdir(previous)
+                    os.close(directory)
 
     def _regular_file(self, path: Path) -> None:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -567,7 +580,7 @@ class InfrastructureRuntime:
 
     def _credentials(self, outputs: FoundationOutputs) -> WorkloadRuntime:
         path = self.directory / "kubeconfig"
-        with self._temporary_artifact("credentials") as temporary:
+        with self._temporary_artifact("credentials") as (temporary, workspace):
             self._run(
                 "az",
                 "aks",
@@ -595,7 +608,7 @@ class InfrastructureRuntime:
                 str(temporary),
             )
             self._regular_file(temporary)
-            os.replace(temporary, path)
+            os.replace(temporary, "kubeconfig", dst_dir_fd=workspace)
         runtime = WorkloadRuntime(
             self.config, "aks", kubeconfig=path, context=outputs.cluster.name, outputs=outputs
         )

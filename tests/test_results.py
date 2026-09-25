@@ -29,6 +29,19 @@ def test_result_redacts_context_and_writes_json(tmp_path: Path) -> None:
     assert payload["context"] == {"safe": "value", "token": "<redacted>"}
 
 
+def test_result_output_does_not_follow_symlink(tmp_path: Path) -> None:
+    external = tmp_path / "external.txt"
+    external.write_text("preserve")
+    path = tmp_path / "result.json"
+    path.symlink_to(external)
+    result = OperationResult("test", "unit", True, 0.1, context={"token": "synthetic-secret"})
+    result.write_json(path)
+    assert external.read_text() == "preserve"
+    assert not path.is_symlink()
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert json.loads(path.read_text())["context"]["token"] == "<redacted>"
+
+
 def test_result_renders_human_summary() -> None:
     result = OperationResult(
         operation="test",

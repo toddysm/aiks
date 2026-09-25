@@ -929,10 +929,11 @@ def test_kubeconfig_replacement_does_not_write_through_symlink(runtime, monkeypa
     _config, outputs, _observed = live_fixture()
     external = tmp_path / "unrelated"
     external.write_text("unchanged")
+    workspace = runtime.directory
 
     def execute(*arguments, **kwargs):
         if arguments[:3] == ("az", "aks", "get-credentials"):
-            destination = runtime.directory / "kubeconfig"
+            destination = workspace / "kubeconfig"
             destination.symlink_to(external)
             temporary = Path(arguments[arguments.index("--file") + 1])
             assert temporary != destination
@@ -945,6 +946,34 @@ def test_kubeconfig_replacement_does_not_write_through_symlink(runtime, monkeypa
     assert external.read_text() == "unchanged"
     assert not (runtime.directory / "kubeconfig").is_symlink()
     assert (runtime.directory / "kubeconfig").read_text() == "synthetic kubeconfig"
+
+
+def test_credential_directory_swap_cannot_redirect_subprocess_paths(runtime, monkeypatch, tmp_path):
+    _config, outputs, _observed = live_fixture()
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "data").write_text("unchanged")
+    previous = Path.cwd()
+
+    def execute(*arguments, **kwargs):
+        if arguments[:3] == ("az", "aks", "get-credentials"):
+            directory = Path.cwd()
+            directory.rename(directory.with_name(directory.name + "-moved"))
+            directory.symlink_to(external, target_is_directory=True)
+            target = Path(arguments[arguments.index("--file") + 1])
+            assert target == Path("data")
+            target.write_text("synthetic kubeconfig")
+        if arguments[0] == "kubelogin":
+            assert arguments[arguments.index("--kubeconfig") + 1] == "data"
+            assert Path("data").read_text() == "synthetic kubeconfig"
+        return ""
+
+    monkeypatch.setattr(runtime, "_run", execute)
+    with pytest.raises(OSError), runtime.session():
+        runtime._credentials(outputs)
+    assert (external / "data").read_text() == "unchanged"
+    assert not (external / "kubeconfig").exists()
+    assert Path.cwd() == previous
 
 
 def test_credential_artifact_refuses_nonregular_file(runtime, tmp_path):
