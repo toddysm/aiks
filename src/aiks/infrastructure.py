@@ -454,12 +454,22 @@ class InfrastructureRuntime:
                 raise ValueError(
                     "deployment plan would replace or delete resources; review migration separately"
                 )
-            for values in (change.get("before"), change.get("after")):
+            required_states = set()
+            if any(action in actions for action in ("delete", "update")):
+                required_states.add("before")
+            if any(action in actions for action in ("create", "update")):
+                required_states.add("after")
+            for state in ("before", "after"):
+                values = change.get(state)
+                if state in required_states and not isinstance(values, dict):
+                    raise ValueError(f"Terraform change lacks required {state} resource values")
                 if values is not None and not isinstance(values, dict):
                     raise ValueError("Terraform before/after resource values are malformed")
                 identifier = values.get("id") if isinstance(values, dict) else None
                 if identifier is not None and not isinstance(identifier, str):
                     raise ValueError("Terraform resource identifier is malformed")
+                if state == "before" and state in required_states and not identifier:
+                    raise ValueError("Terraform prior resource identifier is unverifiable")
                 if identifier and (
                     group is None
                     or not (

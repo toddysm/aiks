@@ -149,7 +149,7 @@ def test_terraform_preview_uses_saved_plan(runtime, monkeypatch):
 
     def execute(*arguments):
         calls.append(arguments)
-        return json.dumps({"resource_changes": [{"change": {"actions": ["create"]}}]})
+        return json.dumps({"resource_changes": [{"change": {"actions": ["create"], "after": {}}}]})
 
     monkeypatch.setattr(runtime, "_terraform", execute)
     assert runtime.plan()["changes"] == 1
@@ -161,7 +161,11 @@ def test_terraform_preview_uses_saved_plan(runtime, monkeypatch):
     "change",
     [
         {"actions": ["delete", "create"]},
-        {"actions": ["update"], "before": {"id": "/subscriptions/other/resourceGroups/foreign"}},
+        {
+            "actions": ["update"],
+            "before": {"id": "/subscriptions/other/resourceGroups/foreign"},
+            "after": {},
+        },
     ],
 )
 def test_plan_cannot_replace_or_touch_foreign_resources(runtime, change):
@@ -241,7 +245,12 @@ def test_complete_mocked_lifecycle(runtime, monkeypatch, engine):
             return json.dumps(
                 {
                     "resource_changes": [
-                        {"change": {"actions": ["no-op" if cloud["exists"] else "create"]}}
+                        {
+                            "change": {
+                                "actions": ["no-op" if cloud["exists"] else "create"],
+                                "after": {},
+                            }
+                        }
                     ]
                 }
             )
@@ -1011,6 +1020,54 @@ def test_ambiguous_lease_acquisition_attempts_owned_release(runtime, monkeypatch
 def test_terraform_missing_change_collection_is_not_a_noop(runtime):
     with pytest.raises(ValueError, match="collection"):
         runtime._check_terraform_plan({})
+
+
+@pytest.mark.parametrize(
+    "action,state",
+    [("delete", "before"), ("update", "before"), ("update", "after"), ("create", "after")],
+)
+@pytest.mark.parametrize("missing", [True, False])
+def test_terraform_actions_require_appropriate_state(runtime, monkeypatch, action, state, missing):
+    group = {"id": f"/subscriptions/{SUBSCRIPTION}/resourceGroups/owned"}
+    monkeypatch.setattr(runtime, "_owned_group", lambda **kwargs: group)
+    change = {"actions": [action], "before": {"id": group["id"]}, "after": {}}
+    if missing:
+        del change[state]
+    else:
+        change[state] = None
+    with pytest.raises(ValueError, match="required"):
+        runtime._check_terraform_plan(
+            {"resource_changes": [{"mode": "managed", "change": change}]},
+            destroy=action == "delete",
+        )
+
+
+@pytest.mark.parametrize("action", ["delete", "update"])
+@pytest.mark.parametrize("before", [{}, {"id": None}, {"id": ""}])
+def test_terraform_existing_resource_requires_verifiable_id(runtime, monkeypatch, action, before):
+    group = {"id": f"/subscriptions/{SUBSCRIPTION}/resourceGroups/owned"}
+    monkeypatch.setattr(runtime, "_owned_group", lambda **kwargs: group)
+    change = {"actions": [action], "before": before, "after": {}}
+    with pytest.raises(ValueError, match="identifier"):
+        runtime._check_terraform_plan(
+            {"resource_changes": [{"mode": "managed", "change": change}]},
+            destroy=action == "delete",
+        )
+
+
+@pytest.mark.parametrize("action", ["create", "update", "delete"])
+def test_terraform_action_states_allow_owned_resources(runtime, monkeypatch, action):
+    group = {"id": f"/subscriptions/{SUBSCRIPTION}/resourceGroups/owned"}
+    monkeypatch.setattr(runtime, "_owned_group", lambda **kwargs: group)
+    change = {
+        "actions": [action],
+        "before": None if action == "create" else {"id": group["id"]},
+        "after": None if action == "delete" else {},
+    }
+    runtime._check_terraform_plan(
+        {"resource_changes": [{"mode": "managed", "change": change}]},
+        destroy=action == "delete",
+    )
 
 
 @pytest.mark.parametrize("action", ["create", "update"])
