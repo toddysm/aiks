@@ -518,6 +518,7 @@ def test_resource_graph_sanitizes_inventory(runtime, monkeypatch):
         },
     ]
     monkeypatch.setattr(runtime.azure, "json", lambda *args: {"data": resources})
+    monkeypatch.setattr(runtime, "_complete_inventory", lambda *args: None)
     with runtime.session():
         result = runtime._snapshot(outputs)
     assert result["microsoft.containerregistry/registries"] == 1
@@ -803,3 +804,102 @@ def test_verify_discovers_only_an_unambiguous_engine(runtime, monkeypatch, tmp_p
     monkeypatch.setattr(runtime.azure, "json", lambda *args: [group, group])
     with pytest.raises(ValueError, match="discover"):
         InfrastructureRuntime(runtime.config, None, directory=tmp_path / "ambiguous")
+
+
+def test_outputs_cannot_inject_group_name_with_valid_identifier(runtime, monkeypatch):
+    _config, outputs, _observed = live_fixture()
+    group = {"id": outputs.resource_group.id, "name": outputs.resource_group.name}
+    outputs.resource_group.name = "other' | union Resources | where true or '"
+    monkeypatch.setattr(runtime, "_owned_group", lambda **kwargs: group)
+    monkeypatch.setattr(
+        runtime.azure,
+        "json",
+        lambda *args: {
+            "properties": {
+                "outputs": {"result": {"value": outputs.model_dump(mode="json", by_alias=True)}}
+            }
+        },
+    )
+    with pytest.raises(ValueError, match="outputs do not match"):
+        runtime._outputs()
+
+
+@pytest.mark.parametrize("environment", ["dev", "production"])
+def test_complete_inventory_counts_children_and_exact_service_interfaces(
+    runtime, monkeypatch, environment
+):
+    config, outputs, _observed = live_fixture(environment)
+    runtime.config = config
+    contract = json.loads((CONFIG.parent.parent / "parity/contract.json").read_text())
+    counts = {kind.lower(): modes[environment] for kind, modes in contract["inventory"].items()}
+    resources = []
+    interfaces = {}
+    network_prefix = outputs.resource_group.id + "/providers/Microsoft.Network/"
+    if environment == "production":
+        for index in range(3):
+            resources.append(
+                {
+                    "id": f"{network_prefix}privateDnsZones/zone{index}",
+                    "type": "Microsoft.Network/privateDnsZones",
+                }
+            )
+        for index in range(2):
+            endpoint = f"{network_prefix}privateEndpoints/endpoint{index}"
+            interface = f"{network_prefix}networkInterfaces/interface{index}"
+            resources.extend(
+                [
+                    {"id": endpoint, "type": "Microsoft.Network/privateEndpoints"},
+                    {"id": interface, "type": "Microsoft.Network/networkInterfaces"},
+                ]
+            )
+            interfaces[endpoint] = interface
+        counts["microsoft.network/networkinterfaces"] = 2
+
+    def collection(identifier, version):
+        if identifier == outputs.identities.cluster.id + "/federatedIdentityCredentials":
+            return []
+        count = (
+            4
+            if identifier.endswith("/subnets")
+            else (2 if environment == "production" else 1)
+            if identifier.endswith("/dataCollectionRuleAssociations")
+            else 1
+        )
+        return [{} for _ in range(count)]
+
+    monkeypatch.setattr(runtime, "_collection", collection)
+    monkeypatch.setattr(
+        runtime,
+        "_resource",
+        lambda identifier, version: {
+            "properties": {"networkInterfaces": [{"id": interfaces[identifier]}]}
+        },
+    )
+    roles = [
+        {"scope": outputs.resource_group.id} for _ in range(8 if environment == "production" else 5)
+    ]
+    monkeypatch.setattr(runtime.azure, "json", lambda *args: roles)
+    runtime._complete_inventory(outputs, counts, resources)
+    roles.append({"scope": outputs.resource_group.id})
+    with pytest.raises(ValueError, match="shared parity"):
+        runtime._complete_inventory(outputs, counts, resources)
+
+
+@pytest.mark.parametrize(
+    "response,valid",
+    [
+        ({"value": [{"id": "resource"}]}, True),
+        (None, False),
+        ({"value": [], "nextLink": "more"}, False),
+        ({"value": [None]}, False),
+    ],
+)
+def test_child_collection_requires_complete_structured_response(
+    runtime, monkeypatch, response, valid
+):
+    monkeypatch.setattr(runtime.azure, "json", lambda *args: response)
+    if valid:
+        assert runtime._collection("/resource/children", "2025-01-01") == response["value"]
+    else:
+        with pytest.raises(ValueError):
+            runtime._collection("/resource/children", "2025-01-01")

@@ -264,6 +264,7 @@ class InfrastructureRuntime:
         if (
             group is None
             or outputs.resource_group.id.lower() != group["id"].lower()
+            or outputs.resource_group.name != group["name"]
             or outputs.environment != self.config.spec.environment
             or outputs.location != self.config.spec.location
         ):
@@ -819,8 +820,148 @@ class InfrastructureRuntime:
                 raise ValueError(
                     "unexpected or missing monitoring resource in environment inventory"
                 )
+        self._complete_inventory(outputs, counts, resources)
         terraform.write_json(self.directory / "inventory.json", counts)
         return counts
+
+    def _collection(self, identifier: str, version: str) -> list[dict[str, Any]]:
+        response = object_response(
+            self.azure.json(
+                "rest",
+                "--method",
+                "get",
+                "--url",
+                f"https://management.azure.com{identifier}?api-version={version}",
+            ),
+            "resource collection",
+        )
+        values = response.get("value")
+        if (
+            response.get("nextLink")
+            or not isinstance(values, list)
+            or any(not isinstance(value, dict) for value in values)
+        ):
+            raise ValueError("resource collection is incomplete or malformed")
+        return values
+
+    def _complete_inventory(
+        self, outputs: FoundationOutputs, counts: dict[str, int], resources: list[dict[str, Any]]
+    ) -> None:
+        from aiks.preflight import foundation_policy
+
+        settings = self.config.spec.observability
+        production = self.config.spec.environment == "production"
+        private = self.config.spec.network.private_cluster
+        alerts = production or bool(
+            settings.action_group_receivers or settings.action_group_resource_ids
+        )
+        expected = {
+            kind.lower(): modes[self.config.spec.environment]
+            for kind, modes in foundation_policy("parity/contract.json")["inventory"].items()
+        }
+        expected.update(
+            {
+                "microsoft.operationalinsights/workspaces": int(settings.container_insights),
+                "microsoft.monitor/accounts": int(settings.managed_prometheus),
+                "microsoft.dashboard/grafana": int(settings.managed_grafana),
+                "microsoft.insights/datacollectionrules": int(settings.container_insights)
+                + int(settings.managed_prometheus),
+                "microsoft.insights/datacollectionruleassociations": int(
+                    settings.container_insights
+                )
+                + int(settings.managed_prometheus),
+                "microsoft.insights/diagnosticsettings": int(settings.container_insights),
+                "microsoft.insights/actiongroups": int(bool(settings.action_group_receivers)),
+                "microsoft.insights/activitylogalerts": int(alerts),
+                "microsoft.alertsmanagement/prometheusrulegroups": int(
+                    alerts and settings.managed_prometheus
+                ),
+                "microsoft.insights/scheduledqueryrules": int(
+                    alerts and settings.container_insights
+                ),
+                "microsoft.network/privatednszones": int(private) + 2 * int(production),
+                "microsoft.network/privatednszones/virtualnetworklinks": int(private)
+                + 2 * int(production),
+                "microsoft.network/privateendpoints": 2 * int(production),
+                "microsoft.network/privateendpoints/privatednszonegroups": 2 * int(production),
+                "microsoft.authorization/roleassignments": 5
+                + int(private)
+                + int(settings.managed_grafana)
+                + int(settings.managed_grafana and settings.managed_prometheus),
+            }
+        )
+        counts["microsoft.resources/resourcegroups"] = 1
+        child_collections = [
+            (
+                "microsoft.network/virtualnetworks/subnets",
+                outputs.network.vnet_id + "/subnets",
+                "2025-01-01",
+            ),
+            (
+                "microsoft.managedidentity/userassignedidentities/federatedidentitycredentials",
+                outputs.identities.readiness.id + "/federatedIdentityCredentials",
+                "2024-11-30",
+            ),
+            (
+                "microsoft.managedidentity/userassignedidentities/federatedidentitycredentials",
+                outputs.identities.cluster.id + "/federatedIdentityCredentials",
+                "2024-11-30",
+            ),
+            ("microsoft.keyvault/vaults/keys", outputs.vault.id + "/keys", "2024-11-01"),
+            (
+                "microsoft.insights/datacollectionruleassociations",
+                outputs.cluster.id + "/providers/Microsoft.Insights/dataCollectionRuleAssociations",
+                "2023-03-11",
+            ),
+            (
+                "microsoft.insights/diagnosticsettings",
+                outputs.cluster.id + "/providers/Microsoft.Insights/diagnosticSettings",
+                "2016-09-01",
+            ),
+        ]
+        for kind, _identifier, _version in child_collections:
+            counts[kind] = 0
+        for kind, identifier, version in child_collections:
+            counts[kind] += len(self._collection(identifier, version))
+        assignments = self.azure.json("role", "assignment", "list", "--all")
+        if not isinstance(assignments, list) or any(
+            not isinstance(entry, dict) or not isinstance(entry.get("scope"), str)
+            for entry in assignments
+        ):
+            raise ValueError("role inventory is malformed")
+        prefix = outputs.resource_group.id.lower()
+        counts["microsoft.authorization/roleassignments"] = sum(
+            entry["scope"].lower() == prefix or entry["scope"].lower().startswith(prefix + "/")
+            for entry in assignments
+        )
+        counts["microsoft.network/privatednszones/virtualnetworklinks"] = 0
+        counts["microsoft.network/privateendpoints/privatednszonegroups"] = 0
+        expected_interfaces: set[str] = set()
+        for resource in resources:
+            kind = resource["type"].lower()
+            if kind == "microsoft.network/privatednszones":
+                counts["microsoft.network/privatednszones/virtualnetworklinks"] += len(
+                    self._collection(resource["id"] + "/virtualNetworkLinks", "2024-06-01")
+                )
+            elif kind == "microsoft.network/privateendpoints":
+                counts["microsoft.network/privateendpoints/privatednszonegroups"] += len(
+                    self._collection(resource["id"] + "/privateDnsZoneGroups", "2025-01-01")
+                )
+                endpoint = self._resource(resource["id"], "2025-01-01")
+                expected_interfaces.update(
+                    entry["id"].lower()
+                    for entry in endpoint["properties"].get("networkInterfaces", [])
+                )
+        actual_interfaces = {
+            resource["id"].lower()
+            for resource in resources
+            if resource["type"].lower() == "microsoft.network/networkinterfaces"
+        }
+        if actual_interfaces != expected_interfaces:
+            raise ValueError("unexplained or missing service-generated network interface")
+        expected["microsoft.network/networkinterfaces"] = len(expected_interfaces)
+        if any(counts.get(kind, 0) != count for kind, count in expected.items()):
+            raise ValueError("complete live inventory differs from the shared parity contract")
 
     def _verify_roles(self, outputs: FoundationOutputs, observed: dict[str, Any]) -> None:
         from importlib.resources import files
