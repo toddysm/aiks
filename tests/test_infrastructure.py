@@ -308,6 +308,8 @@ def test_only_empty_environment_state_is_removed(runtime, monkeypatch, blocked):
                     json.dumps(
                         {
                             "version": 4,
+                            "lineage": "synthetic-lineage",
+                            "serial": 1,
                             "outputs": {},
                             "resources": [{"mode": "managed"}] if blocked else [],
                         }

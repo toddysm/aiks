@@ -231,6 +231,39 @@ def check_recovery(
         raise ValueError("bootstrap state is incomplete")
 
 
+def check_empty_environment_state(document: Any) -> None:
+    if not isinstance(document, dict) or document.get("version") != 4:
+        raise ValueError("environment state is not a supported object")
+    if (
+        not isinstance(document.get("lineage"), str)
+        or not document["lineage"].strip()
+        or not isinstance(document.get("serial"), int)
+        or isinstance(document["serial"], bool)
+        or document["serial"] < 0
+        or not isinstance(document.get("outputs"), dict)
+        or not isinstance(document.get("resources"), list)
+    ):
+        raise ValueError("environment state metadata is unverifiable")
+    if document["outputs"]:
+        raise ValueError("environment state is not empty; refusing removal")
+    for resource in document["resources"]:
+        if not isinstance(resource, dict) or resource.get("mode") != "data":
+            raise ValueError("environment state is not empty; refusing removal")
+        if (
+            not isinstance(resource.get("type"), str)
+            or not resource["type"]
+            or not isinstance(resource.get("name"), str)
+            or not resource["name"]
+            or not isinstance(resource.get("instances"), list)
+        ):
+            raise ValueError("environment data-resource shape is unverifiable")
+        if any(
+            not isinstance(instance, dict) or not isinstance(instance.get("attributes"), dict)
+            for instance in resource["instances"]
+        ):
+            raise ValueError("environment data-resource instances are unverifiable")
+
+
 def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
     path.chmod(0o600)

@@ -1203,17 +1203,7 @@ class InfrastructureRuntime:
             if path.stat().st_size > 32 * 1024 * 1024:
                 raise ValueError("environment state exceeds the recovery bound")
             state = json.loads(path.read_text())
-            resources = state.get("resources")
-            if (
-                state.get("version") != 4
-                or not isinstance(resources, list)
-                or any(
-                    not isinstance(resource, dict) or resource.get("mode") != "data"
-                    for resource in resources
-                )
-                or state.get("outputs")
-            ):
-                raise ValueError("environment state is not empty; refusing removal")
+            terraform.check_empty_environment_state(state)
             if self._groups():
                 raise ValueError("environment appeared during state cleanup")
             backend._blob("delete", "--name", key, "--lease-id", lease)

@@ -15,6 +15,57 @@ CONFIG = Path(__file__).resolve().parents[1] / "infrastructure/aks-automatic/con
 SUBSCRIPTION = "11111111-1111-4111-8111-111111111111"
 
 
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"lineage": None},
+        {"lineage": ""},
+        {"serial": True},
+        {"serial": -1},
+        {"serial": "1"},
+        {"outputs": None},
+        {"outputs": []},
+        {"resources": None},
+        {"resources": [{"mode": "data"}]},
+    ],
+)
+def test_environment_state_cleanup_requires_verifiable_metadata(patch):
+    document = {
+        "version": 4,
+        "lineage": "synthetic-lineage",
+        "serial": 1,
+        "outputs": {},
+        "resources": [],
+    }
+    terraform.check_empty_environment_state(document)
+    with pytest.raises(ValueError):
+        terraform.check_empty_environment_state({**document, **patch})
+
+
+def test_empty_state_accepts_only_well_formed_data_instances():
+    document = {
+        "version": 4,
+        "lineage": "synthetic-lineage",
+        "serial": 1,
+        "outputs": {},
+        "resources": [
+            {
+                "mode": "data",
+                "type": "azurerm_client_config",
+                "name": "current",
+                "instances": [{"attributes": {}}],
+            }
+        ],
+    }
+    terraform.check_empty_environment_state(document)
+    document["resources"][0]["instances"] = [None]
+    with pytest.raises(ValueError, match="instances"):
+        terraform.check_empty_environment_state(document)
+    for invalid in (None, [], {"version": 3}):
+        with pytest.raises(ValueError):
+            terraform.check_empty_environment_state(invalid)
+
+
 @pytest.mark.parametrize("root", ["bootstrap", "modules/cluster"])
 def test_pinned_provider_schema(root: str) -> None:
     directory = CONFIG.parent / "terraform" / root
