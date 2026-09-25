@@ -27,6 +27,8 @@ def test_relative_tool_configuration_is_captured_before_workspace_change(monkeyp
 def test_context_pins_subscription_and_ignores_injected_credentials(monkeypatch):
     calls = []
     monkeypatch.setenv("ARM_CLIENT_SECRET", "not-a-real-secret")
+    monkeypatch.setenv("AZURE_USERNAME", "synthetic-user")
+    monkeypatch.setenv("AZURE_PASSWORD", "synthetic-value")
 
     def execute(command, **kwargs):
         calls.append((command, kwargs))
@@ -41,6 +43,8 @@ def test_context_pins_subscription_and_ignores_injected_credentials(monkeypatch)
     session = AzureSession()
     assert session.json("group", "list") == []
     assert "ARM_CLIENT_SECRET" not in session.environment
+    assert "AZURE_USERNAME" not in session.environment
+    assert "AZURE_PASSWORD" not in session.environment
     assert calls[-1][0][-2:] == ["--subscription", SUBSCRIPTION]
 
 

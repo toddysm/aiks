@@ -1215,18 +1215,18 @@ class InfrastructureRuntime:
         path = self.directory / f"empty-state-{uuid4()}.json"
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         os.close(descriptor)
-        backend._blob(
-            "lease",
-            "acquire",
-            "--blob-name",
-            key,
-            "--lease-duration",
-            "-1",
-            "--proposed-lease-id",
-            lease,
-        )
         deleted = False
         try:
+            backend._blob(
+                "lease",
+                "acquire",
+                "--blob-name",
+                key,
+                "--lease-duration",
+                "-1",
+                "--proposed-lease-id",
+                lease,
+            )
             backend._blob(
                 "download",
                 "--name",
@@ -1249,9 +1249,11 @@ class InfrastructureRuntime:
             if any(blob.get("name") == key for blob in backend.inventory()):
                 raise ValueError("environment state-key removal was not verified")
         finally:
-            if not deleted:
-                backend._blob("lease", "release", "--blob-name", key, "--lease-id", lease)
-            path.unlink(missing_ok=True)
+            try:
+                if not deleted:
+                    backend._blob("lease", "release", "--blob-name", key, "--lease-id", lease)
+            finally:
+                path.unlink(missing_ok=True)
 
     def destroy(
         self,

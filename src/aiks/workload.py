@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from aiks.config import EnvironmentConfig
+from aiks.engines.terraform import write_json
 from aiks.outputs import FoundationOutputs
 from aiks.process import run_command
 
@@ -205,8 +206,7 @@ class WorkloadRuntime:
             self.kubeconfig.chmod(0o600)
             uid = self._get("namespace", "kube-system", None)["metadata"]["uid"]
             receipt = self.directory / "owner.json"
-            receipt.write_text(json.dumps({"name": self.name, "owner": self.owner, "uid": uid}))
-            receipt.chmod(0o600)
+            write_json(receipt, {"name": self.name, "owner": self.owner, "uid": uid})
         self._helm(
             "upgrade",
             "--install",
@@ -366,8 +366,7 @@ class WorkloadRuntime:
         image = self._image()
         self._private_directory()
         values_file = self.directory / f"{self.target}-values.json"
-        values_file.write_text(json.dumps(self.values(image)))
-        values_file.chmod(0o600)
+        write_json(values_file, self.values(image))
         major = self._run("helm", "version", "--short").lstrip("v").split(".")[0]
         rollback_flag = "--rollback-on-failure" if major == "4" else "--atomic"
         with chart_path() as chart:

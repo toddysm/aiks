@@ -57,6 +57,8 @@ class StateBackend:
                     "AZURE_CLIENT_",
                     "AZURE_TENANT_",
                     "AZURE_FEDERATED_",
+                    "AZURE_USERNAME",
+                    "AZURE_PASSWORD",
                 )
             )
         }

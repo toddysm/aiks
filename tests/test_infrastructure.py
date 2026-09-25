@@ -980,6 +980,34 @@ def test_malformed_terraform_change_fails_cleanly(runtime, change):
         runtime._check_terraform_plan({"resource_changes": [change]})
 
 
+def test_ambiguous_lease_acquisition_attempts_owned_release(runtime, monkeypatch):
+    calls = []
+
+    class Backend:
+        subscription = SUBSCRIPTION
+
+        def inventory(self):
+            return [
+                {
+                    "name": "aiks-dev-dev/environment.tfstate",
+                    "properties": {"leaseStatus": "unlocked"},
+                }
+            ]
+
+        def _blob(self, *arguments):
+            calls.append(arguments)
+            if arguments[:2] == ("lease", "acquire"):
+                raise ValueError("transport timeout after possible acquisition")
+
+    monkeypatch.setattr("aiks.state.StateBackend", lambda *args, **kwargs: Backend())
+    with runtime.session(), pytest.raises(ValueError, match="timeout"):
+        runtime._remove_empty_environment_state()
+    assert calls[0][:2] == ("lease", "acquire")
+    assert calls[1][:2] == ("lease", "release")
+    assert calls[0][-1] == calls[1][-1]
+    assert not list(runtime.directory.glob("empty-state-*.json"))
+
+
 def test_terraform_missing_change_collection_is_not_a_noop(runtime):
     with pytest.raises(ValueError, match="collection"):
         runtime._check_terraform_plan({})

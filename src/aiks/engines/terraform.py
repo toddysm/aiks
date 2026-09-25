@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from aiks.config import EnvironmentConfig
 
@@ -265,5 +266,27 @@ def check_empty_environment_state(document: Any) -> None:
 
 
 def write_json(path: Path, value: Any) -> None:
-    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-    path.chmod(0o600)
+    content = json.dumps(value, indent=2) + "\n"
+    directory = os.open(path.anchor or ".", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    temporary = f".aiks-{uuid4()}.json"
+    try:
+        for part in path.parent.parts:
+            if part in {path.anchor, "."}:
+                continue
+            if part == "..":
+                raise ValueError("private artifact path must not traverse parent directories")
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory)
+    finally:
+        with suppress(FileNotFoundError):
+            os.unlink(temporary, dir_fd=directory)
+        os.close(directory)

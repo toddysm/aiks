@@ -35,6 +35,14 @@ def test_environment_isolation(service: StateBackend) -> None:
     assert service.environment["ARM_SUBSCRIPTION_ID"] == SUBSCRIPTION
 
 
+def test_backend_filters_username_password_credentials(service, monkeypatch, tmp_path):
+    monkeypatch.setenv("AZURE_USERNAME", "synthetic-user")
+    monkeypatch.setenv("AZURE_PASSWORD", "synthetic-value")
+    backend = StateBackend(service.config, directory=tmp_path / "other")
+    assert "AZURE_USERNAME" not in backend.environment
+    assert "AZURE_PASSWORD" not in backend.environment
+
+
 def test_only_known_reads_retry(service: StateBackend, monkeypatch: pytest.MonkeyPatch) -> None:
     attempts: list[object] = []
     delays: list[int] = []

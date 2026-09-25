@@ -66,6 +66,39 @@ def test_empty_state_accepts_only_well_formed_data_instances():
             terraform.check_empty_environment_state(invalid)
 
 
+def test_private_json_write_never_follows_destination_symlink(tmp_path):
+    target = tmp_path / "external"
+    target.write_text("unchanged")
+    target.chmod(0o644)
+    artifact = tmp_path / "preview.json"
+    artifact.symlink_to(target)
+    terraform.write_json(artifact, {"safe": True})
+    assert target.read_text() == "unchanged"
+    assert target.stat().st_mode & 0o777 == 0o644
+    assert not artifact.is_symlink()
+    assert json.loads(artifact.read_text()) == {"safe": True}
+    assert artifact.stat().st_mode & 0o777 == 0o600
+
+
+def test_private_json_parent_swap_keeps_directory_descriptor(tmp_path, monkeypatch):
+    original = os.replace
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    moved = tmp_path / "moved"
+
+    def swap(source, destination, **kwargs):
+        workspace.rename(moved)
+        workspace.symlink_to(outside, target_is_directory=True)
+        return original(source, destination, **kwargs)
+
+    monkeypatch.setattr("aiks.engines.terraform.os.replace", swap)
+    terraform.write_json(workspace / "preview.json", {"safe": True})
+    assert not list(outside.iterdir())
+    assert json.loads((moved / "preview.json").read_text()) == {"safe": True}
+
+
 @pytest.mark.parametrize("root", ["bootstrap", "modules/cluster"])
 def test_pinned_provider_schema(root: str) -> None:
     directory = CONFIG.parent / "terraform" / root

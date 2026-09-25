@@ -25,6 +25,8 @@ def cli_environment() -> dict[str, str]:
                 "AZURE_CLIENT_",
                 "AZURE_TENANT_",
                 "AZURE_FEDERATED_",
+                "AZURE_USERNAME",
+                "AZURE_PASSWORD",
             )
         )
     }
