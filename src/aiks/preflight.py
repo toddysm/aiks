@@ -141,6 +141,20 @@ def required_actions(config: EnvironmentConfig, engine: str = "bicep") -> set[st
     for feature, selected in enabled.items():
         if selected:
             actions.update(policy["conditionalActions"][feature])
+    resource_actions = {
+        action.removesuffix("/write") for action in actions if action.endswith("/write")
+    }
+    actions.update(resource + "/read" for resource in resource_actions)
+    if engine == "terraform":
+        actions.update(resource + "/delete" for resource in resource_actions)
+    lifecycle = policy["lifecycleActions"]
+    actions.update(lifecycle["common"])
+    actions.update(lifecycle[engine])
+    for feature in ("privateEndpoints", "containerInsights", "prometheusAlerts"):
+        if enabled[feature]:
+            actions.update(lifecycle[feature])
+    if "@sha256:" not in spec.workload.image:
+        actions.update(lifecycle["imagePublication"])
     return actions
 
 
@@ -218,11 +232,21 @@ def cloud_preflight(
         for provider in providers
         if provider["namespace"].casefold() == "microsoft.containerservice"
     )
+    resource_types = cluster_provider.get("resourceTypes")
+    if not isinstance(resource_types, list) or any(
+        not isinstance(resource, dict)
+        or not isinstance(resource.get("resourceType"), str)
+        or not resource["resourceType"]
+        or not isinstance(resource.get("locations"), list)
+        or not all(isinstance(location, str) and location for location in resource["locations"])
+        for resource in resource_types
+    ):
+        raise ValueError("cluster provider resource-type metadata is malformed")
     locations: list[str] = next(
         (
-            resource.get("locations", [])
-            for resource in cluster_provider.get("resourceTypes", [])
-            if resource.get("resourceType", "").casefold() == "managedclusters"
+            resource["locations"]
+            for resource in resource_types
+            if resource["resourceType"].casefold() == "managedclusters"
         ),
         [],
     )
@@ -247,6 +271,16 @@ def cloud_preflight(
         raise ValueError(
             "operator lacks required subscription permissions: " + ", ".join(missing_actions)
         )
+    if config.spec.observability.managed_prometheus:
+        missing_data = sorted(
+            action
+            for action in policy["prometheusDataActions"]
+            if not allows_action(permissions.get("value"), action, data=True)
+        )
+        if missing_data:
+            raise ValueError(
+                "operator lacks required monitoring data permissions: " + ", ".join(missing_data)
+            )
     extensions = azure.json("extension", "list")
     if not isinstance(extensions, list) or any(
         not isinstance(extension, dict)

@@ -8,6 +8,15 @@
     "bicep": ["Microsoft.Resources/deployments/write", "Microsoft.Resources/deployments/validate/action", "Microsoft.Resources/deployments/whatIf/action"],
     "terraform": []
   },
+  "lifecycleActions": {
+    "common": ["Microsoft.Resources/subscriptions/read", "Microsoft.Resources/subscriptions/providers/read", "Microsoft.Resources/subscriptions/resourceGroups/read", "Microsoft.Resources/subscriptions/resourceGroups/delete", "Microsoft.Resources/subscriptions/resourceGroups/resources/read", "Microsoft.Resources/subscriptions/resources/read", "Microsoft.Resources/resources/read", "Microsoft.Resources/subscriptions/operationresults/read", "Microsoft.Authorization/permissions/read", "Microsoft.Authorization/roleAssignments/read", "Microsoft.Authorization/roleDefinitions/read", "Microsoft.ResourceGraph/resources/read", "Microsoft.Compute/locations/usages/read", "Microsoft.KeyVault/deletedVaults/read", "Microsoft.KeyVault/locations/deletedVaults/read"],
+    "bicep": ["Microsoft.Resources/deployments/operations/read", "Microsoft.Resources/deployments/operationstatuses/read"],
+    "terraform": ["Microsoft.Storage/storageAccounts/read", "Microsoft.Storage/storageAccounts/blobServices/containers/read"],
+    "privateEndpoints": ["Microsoft.Network/networkInterfaces/read", "Microsoft.Network/loadBalancers/read"],
+    "containerInsights": ["Microsoft.OperationalInsights/workspaces/query/read", "Microsoft.OperationalInsights/workspaces/query/KubePodInventory/read"],
+    "prometheusAlerts": ["Microsoft.AlertsManagement/alerts/read"],
+    "imagePublication": ["Microsoft.ContainerRegistry/registries/push/write", "Microsoft.ContainerRegistry/registries/pull/read", "Microsoft.ContainerRegistry/registries/metadata/read"]
+  },
   "conditionalActions": {
     "privateDns": ["Microsoft.Network/privateDnsZones/write", "Microsoft.Network/privateDnsZones/virtualNetworkLinks/write", "Microsoft.Network/privateDnsZones/join/action"],
     "privateEndpoints": ["Microsoft.Network/privateEndpoints/write", "Microsoft.Network/privateEndpoints/privateDnsZoneGroups/write"],
@@ -21,6 +30,7 @@
     "logAlerts": ["Microsoft.Insights/scheduledQueryRules/write"]
   },
   "terraformBackendDataActions": ["Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read", "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/write", "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/delete"],
+  "prometheusDataActions": ["Microsoft.Monitor/accounts/data/metrics/read"],
   "tools": {
     "az": {"arguments": ["version", "--output", "json"], "field": "azure-cli", "minimum": [2, 86, 0], "major": [2]},
     "bicep": {"arguments": ["--version"], "minimum": [0, 46, 1], "major": [0]},

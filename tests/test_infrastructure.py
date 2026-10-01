@@ -832,9 +832,20 @@ def test_telemetry_propagation_retries_only_pending(runtime, monkeypatch):
 
 
 @pytest.mark.parametrize("fail", [False, True])
-def test_alert_drill_always_restores_replicas(runtime, monkeypatch, fail):
+@pytest.mark.parametrize("notification", ["existing", "receiver"])
+def test_alert_drill_always_restores_replicas(runtime, monkeypatch, fail, notification):
     _config, outputs, _observed = live_fixture()
     runtime.config.spec.observability.managed_prometheus = True
+    if notification == "existing":
+        runtime.config.spec.observability.action_group_resource_ids = [
+            outputs.resource_group.id + "/providers/Microsoft.Insights/actionGroups/notifications"
+        ]
+    else:
+        from aiks.config import ActionGroupReceiver
+
+        runtime.config.spec.observability.action_group_receivers = [
+            ActionGroupReceiver(name="operator", email_address="operator@example.com")
+        ]
     commands = []
 
     class Workload:
@@ -862,6 +873,21 @@ def test_alert_drill_always_restores_replicas(runtime, monkeypatch, fail):
         assert runtime.exercise_alerts(confirmed_environment="dev")["replicasRestored"]
     assert commands[0][-1] == "--replicas=0"
     assert commands[-1][-1] == "--replicas=2"
+
+
+@pytest.mark.parametrize("prometheus", [False, True])
+def test_alert_drill_refuses_missing_notification_before_cluster_access(
+    runtime, monkeypatch, prometheus
+):
+    runtime.config.spec.observability.managed_prometheus = prometheus
+    monkeypatch.setattr(
+        runtime, "_owned_group", lambda **kwargs: pytest.fail("must not access Azure")
+    )
+    monkeypatch.setattr(
+        runtime, "_credentials", lambda *args: pytest.fail("must not access Kubernetes")
+    )
+    with pytest.raises(ValueError, match="notification actions"):
+        runtime.exercise_alerts(confirmed_environment="dev")
 
 
 @pytest.mark.parametrize("field", ["targetResource", "alertRule"])

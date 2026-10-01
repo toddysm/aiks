@@ -848,7 +848,10 @@ class InfrastructureRuntime:
         self, *, confirmed_environment: str, allow_production: bool = False
     ) -> dict[str, Any]:
         self._confirm(confirmed_environment, allow_production)
-        if not self.config.spec.observability.managed_prometheus:
+        observability = self.config.spec.observability
+        if not observability.managed_prometheus or not (
+            observability.action_group_resource_ids or observability.action_group_receivers
+        ):
             raise ValueError("alert drill requires managed Prometheus and notification actions")
         with self.session():
             self._owned_group()

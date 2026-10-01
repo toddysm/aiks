@@ -88,8 +88,14 @@ The checked Bicep executable compiles the template explicitly; Azure CLI receive
 that compiled artifact rather than choosing its own compiler implicitly.
 The runtime does not accept injected ARM credentials or Terraform command flags.
 Always inspect the active account and the preview before authorizing a mutation.
-Permission preflight checks the resource writes and additional actions selected
-by the engine, networking posture, and enabled monitoring features. Missing
+Permission preflight checks creation, verification reads, and cleanup permissions
+selected by the engine, networking posture, and enabled monitoring features.
+Resource reads cover the declared inventory; Terraform also requires each managed
+resource's delete permission, while Bicep cleanup requires resource-group deletion.
+The checks include group/resource/role inventories, Resource Graph, deleted-vault
+reporting, and the enabled log-query, alert-evidence, private-frontend, and image
+publication operations. A digest-pinned existing image does not require operator
+push permission. No purge or static-key retrieval permission is requested. Missing
 permissions are reported by action name; unused optional monitoring features do
 not require their write permissions. Terraform also checks blob read/write/delete
 data permissions at the configured state container (write covers blob leases),
@@ -175,6 +181,9 @@ replicas in `finally`, verifies readiness, and waits for resolution. The result
 does not claim notification delivery: the configured action-group receiver must
 confirm the notification and correlate it with this exercise. Record that
 confirmation separately in the sanitized acceptance report.
+
+The drill refuses configurations without managed Prometheus and at least one
+action group or notification receiver before accessing or changing the workload.
 
 ## Cleanup and Recovery
 
