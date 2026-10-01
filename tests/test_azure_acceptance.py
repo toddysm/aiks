@@ -145,6 +145,33 @@ def test_cli_passes_explicit_production_confirmation(campaign, monkeypatch):
     assert calls[1][2] is None
 
 
+def test_image_build_arguments_parse_in_real_cli(campaign, monkeypatch):
+    from click.testing import CliRunner
+
+    import aiks.cli as cli_module
+
+    campaign.load(create=True)
+    path = campaign.directory / "0" / "environment.json"
+    config = yaml.safe_load(
+        (ROOT / "infrastructure/aks-automatic/config/dev.example.yaml").read_text()
+    )
+    controller.save(path, config)
+    called = []
+
+    def lifecycle(config, operation, target, json_output, **options):
+        called.append((operation, target))
+        controller.save(json_output, {"succeeded": True, "context": {"built": True}})
+
+    def execute(arguments, directory, timeout, stop_file, answer):
+        result = CliRunner().invoke(cli_module.cli, arguments[3:], input=answer)
+        assert result.exit_code == 0, result.output
+
+    monkeypatch.setattr(cli_module, "_lifecycle_operation", lifecycle)
+    monkeypatch.setattr(controller, "execute", execute)
+    assert campaign.cli(0, "workload", "build") == {"built": True}
+    assert called == [("build", "kind")]
+
+
 def test_failed_deploy_always_attempts_guarded_cleanup(campaign, monkeypatch):
     operations = []
 

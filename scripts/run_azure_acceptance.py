@@ -252,6 +252,8 @@ class Campaign:
             if posture == "production" and operation in {"deploy", "destroy", "exercise-alerts"}:
                 suffix = operation if operation != "exercise-alerts" else "change"
                 arguments += [f"--allow-production-{suffix}"]
+        elif group == "workload" and operation == "build":
+            arguments += ["--target", "kind"]
         arguments += list(extra)
         timeout = 1800 if cleanup else remaining(self.manifest, time.time())
         execute(arguments, directory, timeout, None if cleanup else self.stop_file, posture + "\n")
