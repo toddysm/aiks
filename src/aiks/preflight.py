@@ -168,6 +168,7 @@ def cloud_preflight(config: EnvironmentConfig, azure: AzureSession) -> dict[str,
         "--url",
         f"https://management.azure.com/subscriptions/{azure.subscription}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01",
     )
+    permissions = object_response(permissions, "effective permissions")
     if not all(
         allows_action(permissions.get("value"), action) for action in policy["requiredActions"]
     ):
@@ -178,6 +179,12 @@ def cloud_preflight(config: EnvironmentConfig, azure: AzureSession) -> dict[str,
     if any(extension.get("name") == "aks-preview" for extension in extensions):
         raise ValueError("remove the incompatible aks-preview extension before deployment")
     quota = azure.json("vm", "list-usage", "--location", config.spec.location)
+    if not isinstance(quota, list):
+        raise ValueError("regional quota inventory is unverifiable")
+    for item in quota:
+        name = object_response(object_response(item, "quota item").get("name"), "quota name")
+        if not isinstance(name.get("value"), str) or not name["value"]:
+            raise ValueError("regional quota name is malformed")
     cores = next(
         (item for item in quota if item.get("name", {}).get("value", "").lower() == "cores"), None
     )

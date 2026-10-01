@@ -55,6 +55,17 @@ def test_effective_permission_matching(permissions, expected):
         ("quota", False, "100.0", 0),
         ("quota", False, "100", "-1"),
         ("quota", False, {}, 0),
+        ("permissions-shape", False, None, 0),
+        ("permissions-shape", False, [], 0),
+        ("permissions-shape", False, "invalid", 0),
+        ("quota-shape", False, None, 0),
+        ("quota-shape", False, {}, 0),
+        ("quota-shape", False, [None], 0),
+        ("quota-shape", False, [{"name": None}], 0),
+        ("quota-shape", False, [{"name": "cores"}], 0),
+        ("quota-shape", False, [{"name": {}}], 0),
+        ("quota-shape", False, [{"name": {"value": 1}}], 0),
+        ("quota-shape", False, [{"name": {"value": ""}}], 0),
     ],
 )
 def test_cloud_preflight_fails_before_mutation(failure, lowercase, limit, current_value):
@@ -91,6 +102,8 @@ def test_cloud_preflight_fails_before_mutation(failure, lowercase, limit, curren
                     for provider in policy["providers"]
                 ]
             if args[0] == "rest":
+                if failure == "permissions-shape":
+                    return limit
                 return {
                     "value": []
                     if failure == "permissions"
@@ -99,6 +112,8 @@ def test_cloud_preflight_fails_before_mutation(failure, lowercase, limit, curren
             if args[:2] == ("extension", "list"):
                 return [{"name": "aks-preview"}] if failure == "extension" else []
             if args[:2] == ("vm", "list-usage"):
+                if failure == "quota-shape":
+                    return limit
                 return [
                     {
                         "name": {"value": "cores"},

@@ -1583,7 +1583,9 @@ class InfrastructureRuntime:
         if not isinstance(resources, list):
             raise ValueError("partial resource inventory is unverifiable")
         for resource in resources:
-            tags = resource.get("tags") or {}
+            tags = object_response(
+                object_response(resource, "partial resource").get("tags"), "partial resource tags"
+            )
             if (
                 tags.get("aiks-instance") != intent["instance"]
                 or tags.get("aiks-engine") != self.engine

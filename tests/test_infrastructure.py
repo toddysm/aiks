@@ -949,6 +949,24 @@ def test_partial_cleanup_refuses_unowned_resource(runtime, monkeypatch):
             runtime._destroy_partial(group, "dev", False)
 
 
+@pytest.mark.parametrize("resource", [None, [], "invalid", {}, {"tags": None}, {"tags": "invalid"}])
+def test_partial_cleanup_rejects_malformed_inventory(runtime, monkeypatch, resource):
+    _config, outputs, _observed = live_fixture()
+    group = {
+        "id": outputs.resource_group.id,
+        "name": outputs.resource_group.name,
+        "tags": {"aiks-instance": "instance"},
+    }
+    monkeypatch.setattr(runtime.azure, "json", lambda *args: [resource])
+    monkeypatch.setattr(runtime, "_run", lambda *args: pytest.fail("must refuse before mutation"))
+    with runtime.session():
+        (runtime.directory / "intent.json").write_text(
+            json.dumps({"engine": "bicep", "owner": runtime.owner, "instance": "instance"})
+        )
+        with pytest.raises(ValueError, match="partial resource"):
+            runtime._destroy_partial(group, "dev", False)
+
+
 @pytest.mark.parametrize("engine", ["bicep", "terraform"])
 def test_partial_cleanup_requires_verified_deletion(runtime, monkeypatch, engine):
     _config, outputs, _observed = live_fixture()
