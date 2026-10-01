@@ -88,6 +88,14 @@ The checked Bicep executable compiles the template explicitly; Azure CLI receive
 that compiled artifact rather than choosing its own compiler implicitly.
 The runtime does not accept injected ARM credentials or Terraform command flags.
 Always inspect the active account and the preview before authorizing a mutation.
+Permission preflight checks the resource writes and additional actions selected
+by the engine, networking posture, and enabled monitoring features. Missing
+permissions are reported by action name; unused optional monitoring features do
+not require their write permissions. Terraform also checks blob read/write/delete
+data permissions at the configured state container (write covers blob leases),
+in addition to checking the existing backend. These checks never grant roles or
+change access. A passed permission check does not override Azure Policy or prove
+that later service calls, network access, or conditional grants will succeed.
 Preflight quota and region checks are availability signals, not a capacity
 reservation or a guarantee that an allocation will succeed.
 

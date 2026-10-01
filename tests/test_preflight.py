@@ -7,7 +7,16 @@ from pathlib import Path
 import pytest
 
 from aiks.config import load_environment_config
-from aiks.preflight import allows_action, check_tools, cloud_preflight, platform_policy, probe_host
+from aiks.preflight import (
+    allows_action,
+    check_backend_permissions,
+    check_tools,
+    cloud_preflight,
+    foundation_policy,
+    platform_policy,
+    probe_host,
+    required_actions,
+)
 from aiks.process import CommandResult
 
 CONFIG = (
@@ -58,6 +67,14 @@ def test_effective_permission_matching(permissions, expected):
         ("permissions-shape", False, None, 0),
         ("permissions-shape", False, [], 0),
         ("permissions-shape", False, "invalid", 0),
+        ("extension-shape", False, None, 0),
+        ("extension-shape", False, {}, 0),
+        ("extension-shape", False, "invalid", 0),
+        ("extension-shape", False, [None], 0),
+        ("extension-shape", False, [{}], 0),
+        ("extension-shape", False, [{"name": None}], 0),
+        ("extension-shape", False, [{"name": 1}], 0),
+        ("extension-shape", False, [{"name": ""}], 0),
         ("quota-shape", False, None, 0),
         ("quota-shape", False, {}, 0),
         ("quota-shape", False, [None], 0),
@@ -110,6 +127,8 @@ def test_cloud_preflight_fails_before_mutation(failure, lowercase, limit, curren
                     else [{"actions": ["*"], "notActions": []}]
                 }
             if args[:2] == ("extension", "list"):
+                if failure == "extension-shape":
+                    return limit
                 return [{"name": "aks-preview"}] if failure == "extension" else []
             if args[:2] == ("vm", "list-usage"):
                 if failure == "quota-shape":
@@ -128,6 +147,122 @@ def test_cloud_preflight_fails_before_mutation(failure, lowercase, limit, curren
             cloud_preflight(config, Session())
     else:
         assert cloud_preflight(config, Session())["permissions"] == "verified"
+
+
+@pytest.mark.parametrize("environment", ["dev", "production"])
+@pytest.mark.parametrize("engine", ["bicep", "terraform"])
+def test_permission_policy_covers_all_deployed_resource_types(environment, engine):
+    config = load_environment_config(CONFIG.with_name(f"{environment}.example.yaml"))
+    actions = required_actions(config, engine)
+    for kind, counts in foundation_policy("parity/contract.json")["inventory"].items():
+        if counts[environment]:
+            action = (
+                "Microsoft.Resources/subscriptions/resourceGroups/write"
+                if kind == "Microsoft.Resources/resourceGroups"
+                else kind + "/write"
+            )
+            assert action in actions
+    assert ("Microsoft.Resources/deployments/whatIf/action" in actions) is (engine == "bicep")
+
+
+def test_permission_policy_only_requires_enabled_optional_features():
+    config = load_environment_config(CONFIG)
+    config.spec.observability.container_insights = False
+    actions = required_actions(config)
+    assert not any(
+        action.startswith(
+            (
+                "Microsoft.OperationalInsights/",
+                "Microsoft.Insights/",
+                "Microsoft.Monitor/",
+                "Microsoft.Dashboard/",
+            )
+        )
+        for action in actions
+    )
+    config.spec.observability.managed_prometheus = True
+    config.spec.observability.managed_grafana = True
+    config.spec.observability.action_group_resource_ids = ["/existing/action-group"]
+    config.spec.network.private_cluster = True
+    actions = required_actions(config)
+    assert "Microsoft.Monitor/accounts/write" in actions
+    assert "Microsoft.Dashboard/grafana/write" in actions
+    assert "Microsoft.AlertsManagement/prometheusRuleGroups/write" in actions
+    assert "Microsoft.Insights/activityLogAlerts/write" in actions
+    assert "Microsoft.Network/privateDnsZones/write" in actions
+    assert "Microsoft.Network/privateEndpoints/write" not in actions
+    assert "Microsoft.Insights/actionGroups/write" not in actions
+    assert "Microsoft.Insights/scheduledQueryRules/write" not in actions
+
+
+@pytest.mark.parametrize("environment", ["dev", "production"])
+@pytest.mark.parametrize("engine", ["bicep", "terraform"])
+def test_preflight_reports_each_missing_required_action(environment, engine):
+    config = load_environment_config(CONFIG.with_name(f"{environment}.example.yaml"))
+
+    class Session:
+        subscription = "11111111-1111-4111-8111-111111111111"
+
+        def json(self, *args):
+            if args[:2] == ("cloud", "show"):
+                return {"name": "AzureCloud"}
+            if args[:2] == ("provider", "list"):
+                return [
+                    {
+                        "namespace": name,
+                        "registrationState": "Registered",
+                        "resourceTypes": [
+                            {"resourceType": "managedClusters", "locations": ["West US 3"]}
+                        ],
+                    }
+                    for name in platform_policy()["providers"]
+                ]
+            if args[0] == "rest":
+                return {"value": [{"actions": ["*"], "notActions": [missing]}]}
+            pytest.fail("permission denial must stop further preflight work")
+
+    for missing in required_actions(config, engine):
+        with pytest.raises(ValueError) as failure:
+            cloud_preflight(config, Session(), engine=engine)
+        assert missing in str(failure.value)
+
+
+@pytest.mark.parametrize(
+    "failure", [None, "read", "write", "delete", "control-only", "malformed", "paginated"]
+)
+def test_backend_permission_check_is_scoped_read_only_and_data_aware(failure):
+    config = load_environment_config(CONFIG)
+
+    class Session:
+        subscription = "11111111-1111-4111-1111-111111111111"
+
+        def json(self, *args):
+            assert args[:3] == ("rest", "--method", "get")
+            url = args[args.index("--url") + 1]
+            assert (
+                f"/subscriptions/{self.subscription}/resourceGroups/{config.spec.terraform.state_resource_group}/"
+                in url
+            )
+            assert (
+                f"/blobServices/default/containers/{config.spec.terraform.state_container}/providers/Microsoft.Authorization/permissions?"
+                in url
+            )
+            if failure == "malformed":
+                return None
+            permissions = {
+                "actions": ["*"],
+                "dataActions": [] if failure == "control-only" else ["*"],
+                "notDataActions": [f"*/{failure}"]
+                if failure in {"read", "write", "delete"}
+                else [],
+            }
+            return {"value": [permissions], "nextLink": "more" if failure == "paginated" else None}
+
+    if failure:
+        with pytest.raises(ValueError, match="permission"):
+            check_backend_permissions(config, Session())
+    else:
+        check_backend_permissions(config, Session())
 
 
 @pytest.mark.parametrize("response", [None, [], "invalid"])

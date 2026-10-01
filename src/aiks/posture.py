@@ -140,6 +140,19 @@ def verify_foundation(
         "registry",
     )
     rules = registry["properties"]["networkRuleSet"]
+    for collection, identifier in (
+        ("ipRules", "value"),
+        ("virtualNetworkRules", "virtualNetworkSubnetResourceId"),
+    ):
+        entries = rules.get(collection, [])
+        if not isinstance(entries, list) or any(
+            not isinstance(rule, dict)
+            or rule.get("action") != "Allow"
+            or not isinstance(rule.get(identifier), str)
+            or not rule[identifier]
+            for rule in entries
+        ):
+            raise ValueError(f"registry {collection} metadata is malformed")
     if {rule["value"] for rule in rules.get("ipRules", []) if rule.get("action") == "Allow"} != set(
         [] if production else spec.network.paas_allowed_ip_ranges
     ):

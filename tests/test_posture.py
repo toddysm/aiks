@@ -261,6 +261,49 @@ def test_missing_or_wrong_property_refuses(actual):
         assert_properties(actual, {"profile.enabled": True}, "cluster")
 
 
+@pytest.mark.parametrize("environment", ["dev", "production"])
+@pytest.mark.parametrize(
+    "collection,identifier",
+    [("ipRules", "value"), ("virtualNetworkRules", "virtualNetworkSubnetResourceId")],
+)
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "null-list",
+        "scalar-list",
+        "null-entry",
+        "scalar-entry",
+        "missing",
+        "action",
+        "identifier",
+        "empty",
+    ],
+)
+def test_registry_network_rules_require_valid_shapes(environment, collection, identifier, mutation):
+    config, outputs, observed = live_fixture(environment)
+    rule = {"action": "Allow", identifier: "synthetic"}
+    entries = [rule]
+    if mutation == "null-list":
+        entries = None
+    elif mutation == "scalar-list":
+        entries = "invalid"
+    elif mutation == "null-entry":
+        entries = [None]
+    elif mutation == "scalar-entry":
+        entries = ["invalid"]
+    elif mutation == "missing":
+        del rule[identifier]
+    elif mutation == "action":
+        rule["action"] = None
+    elif mutation == "identifier":
+        rule[identifier] = 1
+    else:
+        rule[identifier] = ""
+    observed["registry"]["properties"]["networkRuleSet"][collection] = entries
+    with pytest.raises(ValueError, match=r"registry .* metadata is malformed"):
+        verify_foundation(config, outputs, observed)
+
+
 @pytest.mark.parametrize("assignment", [None, [], "invalid"])
 def test_role_contract_rejects_non_object_assignments(assignment):
     with pytest.raises(ValueError, match="malformed"):

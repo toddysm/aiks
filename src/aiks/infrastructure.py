@@ -29,7 +29,7 @@ from aiks.engines import bicep, terraform
 from aiks.observability import TelemetryPendingError, verify_observability
 from aiks.outputs import FoundationOutputs
 from aiks.posture import verify_foundation, verify_roles
-from aiks.preflight import check_tools, cloud_preflight, probe_host
+from aiks.preflight import check_backend_permissions, check_tools, cloud_preflight, probe_host
 from aiks.process import run_command
 from aiks.workload import WorkloadRuntime
 
@@ -408,7 +408,7 @@ class InfrastructureRuntime:
     def _preflight(self) -> dict[str, Any]:
         self.phase = "preflight"
         self._owned_group(required=False)
-        report = cloud_preflight(self.config, self.azure)
+        report = cloud_preflight(self.config, self.azure, engine=str(self.engine))
         if self.engine == "terraform":
             from aiks.state import StateBackend
 
@@ -416,6 +416,7 @@ class InfrastructureRuntime:
             if backend.subscription != self.azure.subscription:
                 raise ValueError("Azure context changed during backend verification")
             backend.status()
+            check_backend_permissions(self.config, self.azure)
         return {**report, "tools": self.versions, "engine": self.engine}
 
     def preflight(self) -> dict[str, Any]:
@@ -824,7 +825,7 @@ class InfrastructureRuntime:
                 if not isinstance(rule, str) or not isinstance(target, str):
                     raise ValueError("alert identity metadata is malformed")
                 if (
-                    "ReadinessUnavailable" not in rule
+                    rule.rsplit("/", 1)[-1] != "ReadinessUnavailable"
                     or essentials.get("monitorCondition") != condition
                 ):
                     continue

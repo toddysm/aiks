@@ -884,7 +884,23 @@ def test_alert_identity_metadata_requires_strings(runtime, monkeypatch, field, v
 
 
 @pytest.mark.parametrize("failure", [None, "stale", "paginated"])
-def test_alert_evidence_must_be_fresh_and_complete(runtime, monkeypatch, failure):
+@pytest.mark.parametrize("condition", ["Fired", "Resolved"])
+@pytest.mark.parametrize(
+    "rule,matched",
+    [
+        ("ReadinessUnavailable", True),
+        (
+            "/subscriptions/test/providers/Microsoft.AlertsManagement/rules/ReadinessUnavailable",
+            True,
+        ),
+        ("NotReadinessUnavailable", False),
+        ("ReadinessUnavailableCopy", False),
+        ("/rules/ReadinessUnavailableCopy", False),
+    ],
+)
+def test_alert_evidence_must_be_fresh_and_complete(
+    runtime, monkeypatch, failure, condition, rule, matched
+):
     _config, outputs, _observed = live_fixture("production")
     since = datetime(2026, 9, 24, tzinfo=UTC)
     response = {
@@ -892,8 +908,8 @@ def test_alert_evidence_must_be_fresh_and_complete(runtime, monkeypatch, failure
             {
                 "properties": {
                     "essentials": {
-                        "alertRule": "ReadinessUnavailable",
-                        "monitorCondition": "Fired",
+                        "alertRule": rule,
+                        "monitorCondition": condition,
                         "targetResource": outputs.monitoring.azure_monitor_workspace_id,
                         "lastModifiedDateTime": "2026-09-24T01:00:00Z"
                         if failure != "stale"
@@ -908,11 +924,11 @@ def test_alert_evidence_must_be_fresh_and_complete(runtime, monkeypatch, failure
     monkeypatch.setattr(runtime.azure, "json", lambda *args: response)
     times = iter([0, 2000])
     monkeypatch.setattr("aiks.infrastructure.perf_counter", lambda: next(times))
-    if failure:
+    if failure or not matched:
         with pytest.raises(ValueError):
-            runtime._wait_alert(outputs, "Fired", since)
+            runtime._wait_alert(outputs, condition, since)
     else:
-        runtime._wait_alert(outputs, "Fired", since)
+        runtime._wait_alert(outputs, condition, since)
 
 
 @pytest.mark.parametrize("engine", ["bicep", "terraform"])
@@ -920,7 +936,7 @@ def test_runtime_preflight_checks_backend_without_bootstrapping(runtime, monkeyp
     runtime.engine = engine
     checked = []
     monkeypatch.setattr(
-        "aiks.infrastructure.cloud_preflight", lambda *args: {"permissions": "verified"}
+        "aiks.infrastructure.cloud_preflight", lambda *args, **kwargs: {"permissions": "verified"}
     )
 
     class Backend:
@@ -930,8 +946,14 @@ def test_runtime_preflight_checks_backend_without_bootstrapping(runtime, monkeyp
             checked.append(True)
 
     monkeypatch.setattr("aiks.state.StateBackend", lambda config, **kwargs: Backend())
+    permission_checks = []
+    monkeypatch.setattr(
+        "aiks.infrastructure.check_backend_permissions",
+        lambda *args: permission_checks.append(True),
+    )
     assert runtime.preflight()["engine"] == engine
     assert bool(checked) is (engine == "terraform")
+    assert bool(permission_checks) is (engine == "terraform")
 
 
 def test_partial_cleanup_refuses_unowned_resource(runtime, monkeypatch):

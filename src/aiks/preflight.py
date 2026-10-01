@@ -56,27 +56,29 @@ def check_tools(engine: str) -> dict[str, str]:
     return versions
 
 
-def allows_action(permissions: Any, action: str) -> bool:
+def allows_action(permissions: Any, action: str, *, data: bool = False) -> bool:
     if not isinstance(permissions, list) or not permissions:
         return False
+    allowed_key = "dataActions" if data else "actions"
+    excluded_key = "notDataActions" if data else "notActions"
     for permission in permissions:
         if (
             not isinstance(permission, dict)
-            or not isinstance(permission.get("actions"), list)
-            or not isinstance(permission.get("notActions", []), list)
+            or not isinstance(permission.get(allowed_key, [] if data else None), list)
+            or not isinstance(permission.get(excluded_key, []), list)
         ):
             return False
-        patterns = permission["actions"] + permission.get("notActions", [])
+        patterns = permission.get(allowed_key, []) + permission.get(excluded_key, [])
         if not all(isinstance(pattern, str) for pattern in patterns):
             return False
     return any(
         any(
             fnmatch.fnmatchcase(action.lower(), pattern.lower())
-            for pattern in permission["actions"]
+            for pattern in permission.get(allowed_key, [])
         )
         and not any(
             fnmatch.fnmatchcase(action.lower(), pattern.lower())
-            for pattern in permission.get("notActions", [])
+            for pattern in permission.get(excluded_key, [])
         )
         for permission in permissions
     )
@@ -113,7 +115,72 @@ def _quota_count(value: Any) -> int:
     raise ValueError("regional core quota is malformed")
 
 
-def cloud_preflight(config: EnvironmentConfig, azure: AzureSession) -> dict[str, Any]:
+def required_actions(config: EnvironmentConfig, engine: str = "bicep") -> set[str]:
+    policy = platform_policy()
+    spec = config.spec
+    observability = spec.observability
+    production = spec.environment == "production"
+    alerts = production or bool(
+        observability.action_group_resource_ids or observability.action_group_receivers
+    )
+    enabled = {
+        "privateDns": production or spec.network.private_cluster,
+        "privateEndpoints": production,
+        "serviceEndpoints": not production,
+        "containerInsights": observability.container_insights,
+        "managedPrometheus": observability.managed_prometheus,
+        "managedGrafana": observability.managed_grafana,
+        "actionGroupReceivers": bool(observability.action_group_receivers),
+        "alerts": alerts,
+        "prometheusAlerts": alerts and observability.managed_prometheus,
+        "logAlerts": alerts and observability.container_insights,
+    }
+    if engine not in policy["engineActions"]:
+        raise ValueError("unsupported infrastructure engine")
+    actions = set(policy["requiredActions"]) | set(policy["engineActions"][engine])
+    for feature, selected in enabled.items():
+        if selected:
+            actions.update(policy["conditionalActions"][feature])
+    return actions
+
+
+def check_backend_permissions(config: EnvironmentConfig, azure: AzureSession) -> None:
+    from urllib.parse import quote
+
+    state = config.spec.terraform
+    scope = (
+        f"/subscriptions/{azure.subscription}/resourceGroups/"
+        f"{quote(state.state_resource_group, safe='')}"
+        "/providers/Microsoft.Storage/storageAccounts/"
+        f"{quote(state.state_storage_account, safe='')}"
+        f"/blobServices/default/containers/{quote(state.state_container, safe='')}"
+    )
+    response = object_response(
+        azure.json(
+            "rest",
+            "--method",
+            "get",
+            "--url",
+            f"https://management.azure.com{scope}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01",
+        ),
+        "Terraform backend permissions",
+    )
+    if response.get("nextLink"):
+        raise ValueError("Terraform backend permission inventory is incomplete")
+    missing = sorted(
+        action
+        for action in platform_policy()["terraformBackendDataActions"]
+        if not allows_action(response.get("value"), action, data=True)
+    )
+    if missing:
+        raise ValueError(
+            "configured Terraform state container lacks data permissions: " + ", ".join(missing)
+        )
+
+
+def cloud_preflight(
+    config: EnvironmentConfig, azure: AzureSession, *, engine: str = "bicep"
+) -> dict[str, Any]:
     policy = platform_policy()
     if config.spec.location not in policy["automaticRegions"]:
         raise ValueError("region is not in the reviewed AKS Automatic availability catalog")
@@ -169,13 +236,25 @@ def cloud_preflight(config: EnvironmentConfig, azure: AzureSession) -> dict[str,
         f"https://management.azure.com/subscriptions/{azure.subscription}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01",
     )
     permissions = object_response(permissions, "effective permissions")
-    if not all(
-        allows_action(permissions.get("value"), action) for action in policy["requiredActions"]
-    ):
+    if permissions.get("nextLink"):
+        raise ValueError("subscription permission inventory is incomplete")
+    missing_actions = sorted(
+        action
+        for action in required_actions(config, engine)
+        if not allows_action(permissions.get("value"), action)
+    )
+    if missing_actions:
         raise ValueError(
-            "operator lacks required subscription deployment or role-assignment permissions"
+            "operator lacks required subscription permissions: " + ", ".join(missing_actions)
         )
     extensions = azure.json("extension", "list")
+    if not isinstance(extensions, list) or any(
+        not isinstance(extension, dict)
+        or not isinstance(extension.get("name"), str)
+        or not extension["name"]
+        for extension in extensions
+    ):
+        raise ValueError("Azure CLI extension inventory is malformed")
     if any(extension.get("name") == "aks-preview" for extension in extensions):
         raise ValueError("remove the incompatible aks-preview extension before deployment")
     quota = azure.json("vm", "list-usage", "--location", config.spec.location)
