@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import errno
 import hashlib
 import json
@@ -17,8 +18,10 @@ from datetime import UTC, datetime
 from ipaddress import ip_address, ip_network
 from pathlib import Path
 from time import perf_counter, sleep
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal
 from uuid import uuid4
+
+import yaml
 
 from aiks.azure import AzureSession, object_response, require_owned_group
 from aiks.config import EnvironmentConfig
@@ -56,6 +59,8 @@ class InfrastructureRuntime:
         self.deployment = f"aiks-{self.owner}"
         self.phase = "initializing"
         self.instance: str | None = None
+        self._plans: dict[str, BinaryIO] = {}
+        self._plan_stack: ExitStack | None = None
         if self.engine is None:
             groups = self._groups()
             selected = groups[0].get("tags", {}).get("aiks-engine") if len(groups) == 1 else None
@@ -65,19 +70,20 @@ class InfrastructureRuntime:
             self.versions = check_tools(selected)
 
     @contextmanager
-    def _directory_handle(self, path: Path) -> Iterator[int]:
+    def _directory_handle(self, path: Path, *, create: bool = True) -> Iterator[int]:
         parts = path.absolute().parts
         descriptor = os.open(parts[0], os.O_RDONLY | os.O_DIRECTORY)
         try:
             for index, part in enumerate(parts[1:]):
-                with suppress(FileExistsError):
-                    os.mkdir(part, mode=0o700, dir_fd=descriptor)
+                if create:
+                    with suppress(FileExistsError):
+                        os.mkdir(part, mode=0o700, dir_fd=descriptor)
                 child = os.open(
                     part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
                 )
                 os.close(descriptor)
                 descriptor = child
-                if index >= len(parts) - 4:
+                if create and index >= len(parts) - 4:
                     os.fchmod(descriptor, 0o700)
             yield descriptor
         except OSError as error:
@@ -94,6 +100,10 @@ class InfrastructureRuntime:
         original_directory = self.directory
         absolute_directory = original_directory.absolute()
         previous = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+        previous_plans = self._plans
+        previous_plan_stack = self._plan_stack
+        plan_stack = ExitStack()
+        plans: dict[str, BinaryIO] = {}
         try:
             with self._directory_handle(absolute_directory) as directory:
                 descriptor = os.open(
@@ -112,6 +122,8 @@ class InfrastructureRuntime:
                         ) from error
                     os.fchdir(directory)
                     self.directory = Path(".")
+                    self._plans = plans
+                    self._plan_stack = plan_stack
                     if not os.path.samestat(
                         os.stat(absolute_directory, follow_symlinks=False), os.fstat(directory)
                     ):
@@ -128,6 +140,9 @@ class InfrastructureRuntime:
                             "infrastructure workspace directory changed during operation"
                         )
         finally:
+            plan_stack.close()
+            self._plans = previous_plans
+            self._plan_stack = previous_plan_stack
             self.directory = original_directory
             os.fchdir(previous)
             os.close(previous)
@@ -145,36 +160,18 @@ class InfrastructureRuntime:
             raise ValueError(f"{self.phase}: {arguments[0]} failed (exit {result.return_code})")
         return result.stdout
 
-    @contextmanager
-    def _temporary_artifact(self, prefix: str) -> Iterator[tuple[Path, int]]:
-        with ExitStack() as stack:
-            previous = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
-            stack.callback(os.close, previous)
-            workspace = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            stack.callback(os.close, workspace)
-            with tempfile.TemporaryDirectory(prefix=prefix + "-", dir=self.directory) as name:
-                directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-                try:
-                    os.fchdir(directory)
-                    path = Path("data")
-                    descriptor = os.open(
-                        path, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600
-                    )
-                    os.close(descriptor)
-                    yield path, workspace
-                finally:
-                    os.fchdir(previous)
-                    os.close(directory)
-
     def _regular_file(self, path: Path) -> None:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        try:
-            info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-                raise ValueError("credential output must be a private regular file")
-            os.fchmod(descriptor, 0o600)
-        finally:
-            os.close(descriptor)
+        with self._directory_handle(path.parent, create=False) as directory:
+            descriptor = os.open(
+                path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+            )
+            try:
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    raise ValueError("artifact must be a private regular file")
+                os.fchmod(descriptor, 0o600)
+            finally:
+                os.close(descriptor)
 
     def _ownership_artifact(self, name: str) -> dict[str, Any]:
         directory = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -278,11 +275,51 @@ class InfrastructureRuntime:
             )
             return json.loads(self._run(*command, pass_fds=tuple(descriptors)))
 
+    @contextmanager
+    def _plan_file(self) -> Iterator[BinaryIO]:
+        with tempfile.TemporaryFile(mode="w+b", dir=self.directory) as handle:
+            yield handle
+
     def _terraform(self, *arguments: str) -> str:
         try:
-            return self._run(
-                "terraform", f"-chdir={self.directory / 'terraform/environment'}", *arguments
-            )
+            rewritten = []
+            descriptors = []
+            for argument in arguments:
+                if argument.startswith("-out="):
+                    name = argument.removeprefix("-out=")
+                    if name not in {"environment.tfplan", "destroy.tfplan"}:
+                        raise ValueError("unexpected Terraform plan output")
+                    if self._plan_stack is None:
+                        raise ValueError("Terraform planning requires a locked operation")
+                    if name in self._plans:
+                        self._plans.pop(name).close()
+                    self._plans[name] = self._plan_stack.enter_context(self._plan_file())
+                    descriptor = self._plans[name].fileno()
+                    descriptors.append(descriptor)
+                    rewritten.append(f"-out=/dev/fd/{descriptor}")
+                elif argument in {"environment.tfplan", "destroy.tfplan"}:
+                    if argument not in self._plans:
+                        raise ValueError("Terraform plan must be created in the current operation")
+                    self._plans[argument].seek(0)
+                    descriptor = self._plans[argument].fileno()
+                    descriptors.append(descriptor)
+                    rewritten.append(f"/dev/fd/{descriptor}")
+                else:
+                    rewritten.append(argument)
+            previous = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                with self._directory_handle(
+                    self.directory / "terraform/environment", create=False
+                ) as directory:
+                    os.fchdir(directory)
+                    try:
+                        return self._run(
+                            "terraform", "-chdir=.", *rewritten, pass_fds=tuple(descriptors)
+                        )
+                    finally:
+                        os.fchdir(previous)
+            finally:
+                os.close(previous)
         finally:
             for path in self.directory.rglob("*"):
                 if (
@@ -290,7 +327,48 @@ class InfrastructureRuntime:
                     and not path.is_symlink()
                     and (path.suffix in {".json", ".tfplan"} or ".tfstate" in path.name)
                 ):
-                    path.chmod(0o600)
+                    self._regular_file(path)
+
+    def _copy_terraform_assets(self, source: Path, destination: int) -> None:
+        for entry in source.iterdir():
+            if (
+                entry.name in {".terraform", "tests"}
+                or ".tfstate" in entry.name
+                or entry.suffix == ".tfplan"
+            ):
+                continue
+            if entry.is_symlink():
+                raise ValueError("Terraform source assets must not use symbolic links")
+            if entry.is_dir():
+                with suppress(FileExistsError):
+                    os.mkdir(entry.name, mode=0o700, dir_fd=destination)
+                child = os.open(
+                    entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=destination
+                )
+                try:
+                    os.fchmod(child, 0o700)
+                    self._copy_terraform_assets(entry, child)
+                finally:
+                    os.close(child)
+                continue
+            if not entry.is_file():
+                raise ValueError("Terraform source asset is not a regular file")
+            temporary = f".aiks-copy-{uuid4()}.tmp"
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=destination,
+            )
+            try:
+                with os.fdopen(descriptor, "wb") as target, entry.open("rb") as original:
+                    shutil.copyfileobj(original, target)
+                    target.flush()
+                    os.fsync(target.fileno())
+                os.replace(temporary, entry.name, src_dir_fd=destination, dst_dir_fd=destination)
+            finally:
+                with suppress(FileNotFoundError):
+                    os.unlink(temporary, dir_fd=destination)
 
     def _prepare_terraform(self) -> None:
         destination = self.directory / "terraform"
@@ -300,12 +378,8 @@ class InfrastructureRuntime:
                 for path in source.rglob("*.tf")
                 if ".terraform" not in path.parts
             }
-            shutil.copytree(
-                source,
-                destination,
-                dirs_exist_ok=True,
-                ignore=shutil.ignore_patterns(".terraform", "*.tfstate*", "*.tfplan", "tests"),
-            )
+            with self._directory_handle(destination) as directory:
+                self._copy_terraform_assets(source, directory)
         unexpected = [
             path
             for path in destination.rglob("*")
@@ -603,35 +677,64 @@ class InfrastructureRuntime:
 
     def _credentials(self, outputs: FoundationOutputs) -> WorkloadRuntime:
         path = self.directory / "kubeconfig"
-        with self._temporary_artifact("credentials") as (temporary, workspace):
-            self._run(
-                "az",
-                "aks",
-                "get-credentials",
-                "--resource-group",
-                outputs.resource_group.name,
-                "--name",
-                outputs.cluster.name,
-                "--file",
-                str(temporary),
-                "--overwrite-existing",
-                "--format",
-                "exec",
-                "--subscription",
-                self.azure.subscription,
-                "--only-show-errors",
+        content = self._run(
+            "az",
+            "aks",
+            "get-credentials",
+            "--resource-group",
+            outputs.resource_group.name,
+            "--name",
+            outputs.cluster.name,
+            "--context",
+            outputs.cluster.name,
+            "--file",
+            "-",
+            "--format",
+            "exec",
+            "--subscription",
+            self.azure.subscription,
+            "--only-show-errors",
+        )
+        if len(content) > 1024 * 1024:
+            raise ValueError("kubeconfig exceeds the size bound")
+        try:
+            document = object_response(yaml.safe_load(content), "kubeconfig")
+        except yaml.YAMLError:
+            raise ValueError("Azure returned malformed kubeconfig") from None
+        users = document.get("users")
+        if not isinstance(users, list) or not users:
+            raise ValueError("kubeconfig exec users are missing")
+        for user in users:
+            authentication = object_response(
+                object_response(user, "kubeconfig user").get("user"), "kubeconfig authentication"
             )
-            self._regular_file(temporary)
-            self._run(
-                "kubelogin",
-                "convert-kubeconfig",
-                "--login",
-                "azurecli",
-                "--kubeconfig",
-                str(temporary),
+            if set(authentication) != {"exec"}:
+                raise ValueError("kubeconfig must use exec authentication only")
+            plugin = object_response(authentication["exec"], "kubeconfig exec plugin")
+            arguments = plugin.get("args")
+            if (
+                plugin.get("command") != "kubelogin"
+                or plugin.get("env") not in (None, [])
+                or not isinstance(arguments, list)
+                or not all(isinstance(argument, str) for argument in arguments)
+                or not arguments
+                or arguments[0] != "get-token"
+            ):
+                raise ValueError("kubeconfig exec plugin is unsupported")
+            parser = argparse.ArgumentParser(
+                add_help=False, allow_abbrev=False, exit_on_error=False
             )
-            self._regular_file(temporary)
-            os.replace(temporary, "kubeconfig", dst_dir_fd=workspace)
+            parser.add_argument("--login", "-l")
+            for option in ("--server-id", "--client-id", "--tenant-id", "--environment"):
+                parser.add_argument(option)
+            try:
+                options, remaining = parser.parse_known_args(arguments[1:])
+            except argparse.ArgumentError:
+                raise ValueError("kubeconfig login arguments are malformed") from None
+            if remaining or not options.server_id:
+                raise ValueError("kubeconfig contains unsupported authentication options")
+            plugin["args"] = ["get-token", "--login", "azurecli", "--server-id", options.server_id]
+        terraform.write_json(path, document)
         runtime = WorkloadRuntime(
             self.config, "aks", kubeconfig=path, context=outputs.cluster.name, outputs=outputs
         )
@@ -793,6 +896,12 @@ class InfrastructureRuntime:
             return
         from urllib.parse import urlsplit
 
+        expected_node_group = (
+            f"MC_{outputs.resource_group.name}_{outputs.cluster.name}_{outputs.location}"
+        )
+        node_group = observed["cluster"]["properties"].get("nodeResourceGroup")
+        if not isinstance(node_group, str) or node_group.lower() != expected_node_group.lower():
+            raise ValueError("cluster node resource group does not match the owned environment")
         base = outputs.resource_group.name.removeprefix("rg-")
         for service, prefix, target, host in (
             ("registry", "acr", outputs.registry.id, outputs.registry.login_server),
@@ -862,8 +971,21 @@ class InfrastructureRuntime:
                 f"{service} private DNS link",
             )
             addresses: set[str] = set()
-            for reference in endpoint["properties"].get("networkInterfaces", []):
-                interface = self._resource(reference["id"], "2025-01-01")
+            references = endpoint["properties"].get("networkInterfaces")
+            if not isinstance(references, list) or not references:
+                raise ValueError("private endpoint network interface inventory is unverifiable")
+            for reference in references:
+                identifier = object_response(reference, "network interface reference").get("id")
+                if not isinstance(identifier, str) or not re.fullmatch(
+                    re.escape(outputs.resource_group.id)
+                    + r"/providers/Microsoft\.Network/networkInterfaces/[A-Za-z0-9][A-Za-z0-9_.-]*",
+                    identifier,
+                    re.IGNORECASE,
+                ):
+                    raise ValueError(
+                        "private endpoint network interface is outside the environment"
+                    )
+                interface = self._resource(identifier, "2025-01-01")
                 addresses.update(
                     entry["properties"]["privateIPAddress"]
                     for entry in interface["properties"]["ipConfigurations"]
@@ -891,9 +1013,8 @@ class InfrastructureRuntime:
             for address in api_addresses
         ):
             raise ValueError("private cluster API resolves outside its configured API subnet")
-        node_group = observed["cluster"]["properties"]["nodeResourceGroup"]
         load_balancers = self._collection(
-            f"/subscriptions/{self.azure.subscription}/resourceGroups/{node_group}"
+            f"/subscriptions/{self.azure.subscription}/resourceGroups/{expected_node_group}"
             "/providers/Microsoft.Network/loadBalancers",
             "2025-01-01",
         )
@@ -1309,7 +1430,6 @@ class InfrastructureRuntime:
         if terraform.blob_lease(entry)["status"] != "unlocked":
             raise ValueError("environment state has an active lease")
         lease = str(uuid4())
-        deleted = False
         with tempfile.TemporaryFile(mode="w+b", dir=self.directory) as handle:
             try:
                 backend._blob(
@@ -1342,12 +1462,25 @@ class InfrastructureRuntime:
                 if self._groups():
                     raise ValueError("environment appeared during state cleanup")
                 backend._blob("delete", "--name", key, "--lease-id", lease)
-                deleted = True
                 if any(blob.get("name") == key for blob in backend.inventory()):
                     raise ValueError("environment state-key removal was not verified")
-            finally:
-                if not deleted:
+            except BaseException as error:
+                try:
                     backend._blob("lease", "release", "--blob-name", key, "--lease-id", lease)
+                except (ValueError, OSError):
+                    error.add_note(
+                        "State lease release could not be verified; inspect the backend."
+                    )
+                raise
+
+    def _verify_cleanup_instance(self, group: dict[str, Any], instance: str) -> None:
+        current = self._owned_group()
+        if (
+            current is None
+            or current["id"].lower() != group["id"].lower()
+            or current["tags"].get("aiks-instance") != instance
+        ):
+            raise ValueError("environment ownership changed during cleanup")
 
     def destroy(
         self,
@@ -1459,6 +1592,7 @@ class InfrastructureRuntime:
                 raise ValueError("partial cleanup found a resource without verifiable ownership")
         self.phase = "partial-resource-cleanup"
         if self.engine == "bicep":
+            self._verify_cleanup_instance(group, intent["instance"])
             self._run(
                 *bicep.destroy_command(
                     config=self.config,
@@ -1481,6 +1615,7 @@ class InfrastructureRuntime:
             self._check_terraform_plan(
                 json.loads(self._terraform("show", "-json", "destroy.tfplan")), destroy=True
             )
+            self._verify_cleanup_instance(group, intent["instance"])
             self._terraform("apply", "-input=false", "-auto-approve", "-no-color", "destroy.tfplan")
         if self.azure.json("group", "exists", "--name", group["name"]) is not False:
             raise ValueError("partial environment deletion was not verified")

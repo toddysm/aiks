@@ -16,6 +16,35 @@ CONFIG = (
 )
 
 
+def exec_kubeconfig(outputs):
+    return {
+        "apiVersion": "v1",
+        "kind": "Config",
+        "current-context": outputs.cluster.name,
+        "clusters": [
+            {"name": outputs.cluster.name, "cluster": {"server": "https://" + outputs.cluster.fqdn}}
+        ],
+        "contexts": [
+            {
+                "name": outputs.cluster.name,
+                "context": {"cluster": outputs.cluster.name, "user": "operator"},
+            }
+        ],
+        "users": [
+            {
+                "name": "operator",
+                "user": {
+                    "exec": {
+                        "apiVersion": "client.authentication.k8s.io/v1beta1",
+                        "command": "kubelogin",
+                        "args": ["get-token", "--login", "devicecode", "--server-id", SUBSCRIPTION],
+                    }
+                },
+            }
+        ],
+    }
+
+
 @pytest.fixture
 def runtime(monkeypatch, tmp_path):
     class Session:
@@ -175,6 +204,37 @@ def test_environment_workspace_is_locked(runtime):
         pass
 
 
+@pytest.mark.parametrize("race", [False, True])
+def test_terraform_staging_cannot_follow_replaced_destination(runtime, monkeypatch, tmp_path, race):
+    import os
+
+    external = tmp_path / "external"
+    external.mkdir()
+    original_open = os.open
+    swapped = []
+
+    def racing_open(path, flags, mode=0o777, **kwargs):
+        if str(path) == "environment" and kwargs.get("dir_fd") is not None and not swapped:
+            destination = runtime.directory / "terraform"
+            destination.rename(runtime.directory / "terraform-moved")
+            destination.symlink_to(external, target_is_directory=True)
+            swapped.append(True)
+        return original_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(runtime, "_terraform", lambda *args: pytest.fail("must refuse before init"))
+    with runtime.session():
+        if race:
+            monkeypatch.setattr("aiks.infrastructure.os.open", racing_open)
+        else:
+            (runtime.directory / "terraform").symlink_to(external, target_is_directory=True)
+        with pytest.raises((OSError, ValueError)):
+            runtime._prepare_terraform()
+    assert not list(external.iterdir())
+    if race:
+        assert swapped
+        assert (runtime.directory / "terraform-moved/environment/main.tf").is_file()
+
+
 def test_terraform_preview_uses_saved_plan(runtime, monkeypatch):
     monkeypatch.setattr(runtime, "_preflight", lambda: {})
     runtime.engine = "terraform"
@@ -278,6 +338,7 @@ def test_complete_mocked_lifecycle(runtime, monkeypatch, engine):
     runtime.azure.tenant = SUBSCRIPTION
     events = []
     cloud = {"exists": False, "instance": None}
+    saved_plans = {}
 
     def group():
         return {
@@ -327,8 +388,15 @@ def test_complete_mocked_lifecycle(runtime, monkeypatch, engine):
             return ""
         assert arguments[0] == "terraform"
         operation = arguments[2]
+        if operation == "plan":
+            plan_path = next(
+                argument.removeprefix("-out=")
+                for argument in arguments
+                if argument.startswith("-out=")
+            )
+            saved_plans[plan_path] = "-destroy" in arguments
         if operation == "apply":
-            cloud.update(exists=arguments[-1] != "destroy.tfplan", instance=runtime.instance)
+            cloud.update(exists=not saved_plans[arguments[-1]], instance=runtime.instance)
         if operation == "output":
             return outputs.model_dump_json(by_alias=True)
         if operation == "show":
@@ -388,7 +456,8 @@ def test_complete_mocked_lifecycle(runtime, monkeypatch, engine):
 
 
 @pytest.mark.parametrize("blocked", [False, True])
-def test_only_empty_environment_state_is_removed(runtime, monkeypatch, blocked):
+@pytest.mark.parametrize("verification", ["absent", "present", "error", "release-error"])
+def test_only_empty_environment_state_is_removed(runtime, monkeypatch, blocked, verification):
     runtime.engine = "terraform"
     deleted = []
     calls = []
@@ -398,7 +467,11 @@ def test_only_empty_environment_state_is_removed(runtime, monkeypatch, blocked):
         subscription = SUBSCRIPTION
 
         def inventory(self):
-            return [] if deleted else [{"name": key, "properties": {"leaseStatus": "unlocked"}}]
+            if deleted and verification in {"error", "release-error"}:
+                raise ValueError("inventory unavailable")
+            if deleted and verification == "absent":
+                return []
+            return [{"name": key, "properties": {"leaseStatus": "unlocked"}}]
 
         def _blob(self, *arguments, pass_fds=()):
             calls.append(arguments)
@@ -419,16 +492,23 @@ def test_only_empty_environment_state_is_removed(runtime, monkeypatch, blocked):
                 )
             elif arguments[0] == "delete":
                 deleted.append(key)
+            elif arguments[:2] == ("lease", "release") and verification == "release-error":
+                raise ValueError("lease release unavailable")
 
     monkeypatch.setattr("aiks.state.StateBackend", lambda config, **kwargs: Backend())
     with runtime.session():
-        if blocked:
-            with pytest.raises(ValueError, match="not empty"):
+        if blocked or verification != "absent":
+            expected = "not empty" if blocked else "state-key|inventory unavailable"
+            with pytest.raises(ValueError, match=expected) as failure:
                 runtime._remove_empty_environment_state()
+            if verification == "release-error":
+                assert any("lease release" in note for note in failure.value.__notes__)
         else:
             runtime._remove_empty_environment_state()
     assert bool(deleted) is not blocked
-    assert any(call[:2] == ("lease", "release") for call in calls) is blocked
+    assert any(call[:2] == ("lease", "release") for call in calls) is (
+        blocked or verification != "absent"
+    )
 
 
 @pytest.mark.parametrize("environment", ["dev", "production"])
@@ -450,7 +530,7 @@ def test_resource_reads_and_private_credentials(runtime, monkeypatch, environmen
     monkeypatch.setattr(
         runtime,
         "_run",
-        lambda *args, **kwargs: commands.append(args) or "Merged context into private file",
+        lambda *args, **kwargs: commands.append(args) or json.dumps(exec_kubeconfig(outputs)),
     )
     observed = runtime._observed(outputs)
     assert observed["cluster"]["id"] == outputs.cluster.id
@@ -468,6 +548,8 @@ def test_resource_reads_and_private_credentials(runtime, monkeypatch, environmen
         assert workload.kubeconfig.stat().st_mode & 0o777 == 0o600
         assert commands[0][:3] == ("az", "aks", "get-credentials")
         assert "--subscription" in commands[0]
+        assert commands[0][commands[0].index("--file") + 1] == "-"
+        assert len(commands) == 1
     monkeypatch.setattr(runtime.azure, "json", lambda *args: {"id": "other"})
     with pytest.raises(ValueError, match="identity"):
         runtime._resource(outputs.cluster.id, "2026-04-01")
@@ -540,6 +622,11 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
 
     config, outputs, observed = live_fixture("production")
     runtime.config = config
+    node_group = f"MC_{outputs.resource_group.name}_{outputs.cluster.name}_{outputs.location}"
+    observed["cluster"]["properties"]["nodeResourceGroup"] = node_group
+    interface_id = outputs.resource_group.id + "/providers/Microsoft.Network/networkInterfaces/test"
+    references = {"value": [{"id": interface_id}]}
+    requests = []
     base = outputs.resource_group.name.removeprefix("rg-")
     address = str(ip_network(config.spec.network.private_endpoint_subnet_cidr)[4])
     api_address = str(ip_network(config.spec.network.api_server_subnet_cidr)[4])
@@ -548,6 +635,7 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
     subnet_overrides = {}
 
     def resource(identifier, version):
+        requests.append(identifier)
         if "/privateDnsZoneGroups/" in identifier:
             zone = (
                 "privatelink.azurecr.io"
@@ -572,6 +660,7 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
                 }
             }
         if "networkInterfaces" in identifier:
+            assert identifier == interface_id
             return {
                 "properties": {"ipConfigurations": [{"properties": {"privateIPAddress": address}}]}
             }
@@ -589,12 +678,7 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
                         }
                     }
                 ],
-                "networkInterfaces": [
-                    {
-                        "id": outputs.resource_group.id
-                        + "/providers/Microsoft.Network/networkInterfaces/test"
-                    }
-                ],
+                "networkInterfaces": references["value"],
             }
         }
 
@@ -618,6 +702,27 @@ def test_private_endpoint_and_load_balancer_bindings(runtime, monkeypatch):
             return {"status": {"addresses": [{"value": address}]}}
 
     runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
+    for invalid in (None, 1, "foreign", node_group + "/../other", node_group + "?query=true"):
+        observed["cluster"]["properties"]["nodeResourceGroup"] = invalid
+        before = len(requests)
+        with pytest.raises(ValueError, match="node resource group"):
+            runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
+        assert len(requests) == before
+    observed["cluster"]["properties"]["nodeResourceGroup"] = node_group
+    for invalid in (
+        None,
+        [],
+        [None],
+        [{"id": None}],
+        [{"id": interface_id.replace("resourceGroups/", "resourceGroups/foreign-")}],
+        [{"id": interface_id + "/child"}],
+        [{"id": interface_id + "?query=true"}],
+        [{"id": interface_id.replace("networkInterfaces", "virtualNetworks")}],
+    ):
+        references["value"] = invalid
+        with pytest.raises(ValueError, match="network interface"):
+            runtime._private_frontends(outputs, observed, Workload(), {"gatewayAddress": address})
+    references["value"] = [{"id": interface_id}]
     for target in (outputs.registry.id, outputs.vault.id):
         for subnet in ("foreign", None, 1):
             subnet_overrides[target] = subnet
@@ -894,6 +999,49 @@ def test_partial_cleanup_requires_verified_deletion(runtime, monkeypatch, engine
         runtime.destroy(confirmed_environment="dev", allow_partial=True)
 
 
+@pytest.mark.parametrize("engine", ["bicep", "terraform"])
+@pytest.mark.parametrize("change", ["instance", "group", "missing", "retagged"])
+def test_partial_cleanup_rechecks_live_instance_before_mutation(
+    runtime, monkeypatch, engine, change
+):
+    _config, outputs, _observed = live_fixture()
+    runtime.engine = engine
+    group = {
+        "id": outputs.resource_group.id,
+        "name": outputs.resource_group.name,
+        "tags": {"aiks-instance": "original"},
+    }
+    current = {**group, "tags": {"aiks-instance": "original"}}
+    if change == "instance":
+        current["tags"]["aiks-instance"] = "replacement"
+    elif change == "group":
+        current["id"] += "-other"
+    elif change == "missing":
+        current = None
+
+    def owned_group():
+        if change == "retagged":
+            raise ValueError("environment ownership changed during cleanup")
+        return current
+
+    def terraform(*arguments):
+        assert arguments[0] != "apply", "must refuse before mutation"
+        return '{"resource_changes": []}'
+
+    monkeypatch.setattr(runtime, "_owned_group", owned_group)
+    monkeypatch.setattr(runtime.azure, "json", lambda *args: [])
+    monkeypatch.setattr(runtime, "_run", lambda *args: pytest.fail("must refuse before deletion"))
+    monkeypatch.setattr(runtime, "_terraform", terraform)
+    monkeypatch.setattr(runtime, "_prepare_terraform", lambda: None)
+    monkeypatch.setattr(runtime, "_check_terraform_plan", lambda *args, **kwargs: None)
+    with runtime.session():
+        (runtime.directory / "intent.json").write_text(
+            json.dumps({"engine": engine, "owner": runtime.owner, "instance": "original"})
+        )
+        with pytest.raises(ValueError, match="ownership changed"):
+            runtime._destroy_partial(group, "dev", False)
+
+
 def test_runtime_confirmation_and_local_guard_failures(runtime, monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="confirmation"):
         runtime.deploy(confirmed_environment="wrong")
@@ -969,45 +1117,172 @@ def test_kubeconfig_replacement_does_not_write_through_symlink(runtime, monkeypa
         if arguments[:3] == ("az", "aks", "get-credentials"):
             destination = workspace / "kubeconfig"
             destination.symlink_to(external)
-            temporary = Path(arguments[arguments.index("--file") + 1])
-            assert temporary != destination
-            temporary.write_text("synthetic kubeconfig")
-        return "Merged context"
+            assert arguments[arguments.index("--file") + 1] == "-"
+            return json.dumps(exec_kubeconfig(outputs))
+        pytest.fail("no external kubeconfig conversion is permitted")
 
     monkeypatch.setattr(runtime, "_run", execute)
     with runtime.session():
         runtime._credentials(outputs)
     assert external.read_text() == "unchanged"
     assert not (runtime.directory / "kubeconfig").is_symlink()
-    assert (runtime.directory / "kubeconfig").read_text() == "synthetic kubeconfig"
+    document = json.loads((runtime.directory / "kubeconfig").read_text())
+    assert document["users"][0]["user"]["exec"]["args"][1:3] == ["--login", "azurecli"]
 
 
-def test_credential_directory_swap_cannot_redirect_subprocess_paths(runtime, monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "login", [["--login", "devicecode"], ["-l", "devicecode"], ["--login=devicecode"], []]
+)
+def test_kubeconfig_normalizes_supported_exec_arguments(runtime, monkeypatch, login):
     _config, outputs, _observed = live_fixture()
-    external = tmp_path / "external"
+    document = exec_kubeconfig(outputs)
+    document["users"][0]["user"]["exec"]["args"] = [
+        "get-token",
+        *login,
+        "--server-id",
+        SUBSCRIPTION,
+        "--client-id",
+        SUBSCRIPTION,
+        "--tenant-id",
+        SUBSCRIPTION,
+        "--environment",
+        "AzurePublicCloud",
+    ]
+    monkeypatch.setattr(runtime, "_run", lambda *args: json.dumps(document))
+    with runtime.session():
+        workload = runtime._credentials(outputs)
+        saved = json.loads(workload.kubeconfig.read_text())
+    assert saved["users"][0]["user"]["exec"]["args"] == [
+        "get-token",
+        "--login",
+        "azurecli",
+        "--server-id",
+        SUBSCRIPTION,
+    ]
+
+
+@pytest.mark.parametrize(
+    "failure", ["plugin", "static", "environment", "arguments", "login", "yaml"]
+)
+def test_unsupported_kubeconfig_is_not_persisted(runtime, monkeypatch, failure):
+    _config, outputs, _observed = live_fixture()
+    document = exec_kubeconfig(outputs)
+    authentication = document["users"][0]["user"]
+    plugin = authentication["exec"]
+    if failure == "plugin":
+        plugin["command"] = "unexpected"
+    elif failure == "static":
+        authentication["token"] = "synthetic"
+    elif failure == "environment":
+        plugin["env"] = [{"name": "AZURE_PASSWORD", "value": "synthetic"}]
+    elif failure == "arguments":
+        plugin["args"] += ["--client-secret", "synthetic"]
+    elif failure == "login":
+        plugin["args"] = ["get-token", "--login"]
+    content = "[malformed" if failure == "yaml" else json.dumps(document)
+    monkeypatch.setattr(runtime, "_run", lambda *args: content)
+    with runtime.session():
+        with pytest.raises(ValueError):
+            runtime._credentials(outputs)
+        assert not (runtime.directory / "kubeconfig").exists()
+
+
+def test_terraform_permission_race_cannot_chmod_external_file(runtime, monkeypatch, tmp_path):
+    import os
+
+    external = tmp_path / "external.json"
+    external.write_text("preserve")
+    external.chmod(0o644)
+    original_open = os.open
+
+    def racing_open(path, flags, mode=0o777, **kwargs):
+        if str(path) == "artifact.tfplan":
+            artifact = runtime.directory / "artifact.tfplan"
+            artifact.unlink()
+            artifact.symlink_to(external)
+        return original_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(runtime, "_run", lambda *args, **kwargs: "")
+    with runtime.session():
+        (runtime.directory / "terraform/environment").mkdir(parents=True)
+        (runtime.directory / "artifact.tfplan").write_text("synthetic plan")
+        monkeypatch.setattr("aiks.infrastructure.os.open", racing_open)
+        with pytest.raises((OSError, ValueError)):
+            runtime._terraform("version")
+    assert external.stat().st_mode & 0o777 == 0o644
+    assert external.read_text() == "preserve"
+
+
+def test_artifact_permission_check_refuses_symlink_parent(runtime, tmp_path):
+    external = tmp_path / "outside"
     external.mkdir()
-    (external / "data").write_text("unchanged")
-    previous = Path.cwd()
+    (external / "result.json").write_text("preserve")
+    (external / "result.json").chmod(0o644)
+    with runtime.session():
+        (runtime.directory / "linked").symlink_to(external, target_is_directory=True)
+        with pytest.raises(ValueError, match="symbolic links"):
+            runtime._regular_file(runtime.directory / "linked/result.json")
+    assert (external / "result.json").stat().st_mode & 0o777 == 0o644
+
+
+@pytest.mark.parametrize("name", ["environment.tfplan", "destroy.tfplan"])
+def test_terraform_plan_handoff_retains_anonymous_descriptor(runtime, monkeypatch, tmp_path, name):
+    external = tmp_path / "external-plan"
+    external.write_text("preserve")
+    descriptors = []
 
     def execute(*arguments, **kwargs):
-        if arguments[:3] == ("az", "aks", "get-credentials"):
-            directory = Path.cwd()
-            directory.rename(directory.with_name(directory.name + "-moved"))
-            directory.symlink_to(external, target_is_directory=True)
-            target = Path(arguments[arguments.index("--file") + 1])
-            assert target == Path("data")
-            target.write_text("synthetic kubeconfig")
-        if arguments[0] == "kubelogin":
-            assert arguments[arguments.index("--kubeconfig") + 1] == "data"
-            assert Path("data").read_text() == "synthetic kubeconfig"
-        return ""
+        assert arguments[:2] == ("terraform", "-chdir=.")
+        descriptor = kwargs["pass_fds"][0]
+        descriptors.append(descriptor)
+        if arguments[2] == "plan":
+            assert f"-out=/dev/fd/{descriptor}" in arguments
+            Path(name).symlink_to(external)
+            Path(f"/dev/fd/{descriptor}").write_text("verified plan")
+        else:
+            assert arguments[-1] == f"/dev/fd/{descriptor}"
+            assert Path(arguments[-1]).read_text() == "verified plan"
+        return "{}"
 
     monkeypatch.setattr(runtime, "_run", execute)
-    with pytest.raises(OSError), runtime.session():
-        runtime._credentials(outputs)
-    assert (external / "data").read_text() == "unchanged"
-    assert not (external / "kubeconfig").exists()
-    assert Path.cwd() == previous
+    with runtime.session():
+        (runtime.directory / "terraform/environment").mkdir(parents=True)
+        runtime._terraform("plan", f"-out={name}")
+        handle = runtime._plans[name]
+        runtime._terraform("show", "-json", name)
+        runtime._terraform("apply", "-input=false", "-auto-approve", name)
+    assert len(set(descriptors)) == 1
+    assert handle.closed
+    assert not runtime._plans
+    assert external.read_text() == "preserve"
+
+
+def test_native_terraform_plan_descriptor_roundtrip(runtime, tmp_path):
+    import shutil
+
+    from aiks.azure import cli_environment
+
+    if shutil.which("terraform") is None:
+        pytest.skip("Terraform is required for native descriptor verification")
+    runtime.azure.environment = cli_environment()
+    external = tmp_path / "external-plan"
+    external.write_text("preserve")
+    with runtime.session():
+        directory = runtime.directory / "terraform/environment"
+        directory.mkdir(parents=True)
+        (directory / "main.tf").write_text(
+            'resource "terraform_data" "fixture" { input = "test" }\n'
+        )
+        runtime._terraform("init", "-backend=false", "-input=false", "-no-color")
+        for name, flags in (("environment.tfplan", ()), ("destroy.tfplan", ("-destroy",))):
+            (directory / name).symlink_to(external)
+            runtime._terraform("plan", "-input=false", "-no-color", *flags, f"-out={name}")
+            document = json.loads(runtime._terraform("show", "-json", name))
+            assert document["resource_changes"][0]["change"]["actions"] == (
+                ["delete"] if flags else ["create"]
+            )
+            runtime._terraform("apply", "-input=false", "-auto-approve", "-no-color", name)
+    assert external.read_text() == "preserve"
 
 
 def test_credential_artifact_refuses_nonregular_file(runtime, tmp_path):

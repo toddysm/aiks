@@ -109,7 +109,18 @@ the created group and outputs are verified. Normal cleanup requires the receipt
 and matching live instance. A replaced group is refused even if its name matches.
 Environment commands never target the backend resource group.
 
-Raw previews, plans, outputs, state metadata, and the explicit kubeconfig stay in
+Saved Terraform plans are anonymous files retained only for the locked operation;
+plan generation, inspection, and apply use the same inherited descriptor. Run a
+fresh plan after restarting an operation; a separate plan command is not a reusable
+approval artifact for a later deployment. Terraform source staging and permission
+hardening use no-follow directory and file descriptors.
+
+Kubeconfig retrieval requests exec credentials on standard output and validates
+them in memory. Only the supported `kubelogin get-token` arguments are accepted;
+the login is normalized to `azurecli` before atomic private-file installation.
+No external credential command receives a writable kubeconfig pathname.
+
+Raw previews, outputs, state metadata, and the explicit kubeconfig stay in
 the ignored private workspace. **Do not commit these files.** Only summarized
 operation results and sanitized type-count inventories are suitable starting
 points for acceptance evidence; audit them before sharing. The default kubeconfig
