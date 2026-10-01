@@ -90,6 +90,26 @@ def test_admission_refuses_reordered_postures(environment):
         controller.admission(environment, 100)
 
 
+@pytest.mark.parametrize(
+    "posture,workload,expected",
+    [
+        ("dev", {}, 2),
+        ("dev", {"replicas": None}, 2),
+        ("production", {}, 3),
+        ("production", {"replicas": None}, 3),
+        ("production", {"replicas": 4}, 5),
+        ("production", {"replicas": "2"}, 3),
+        ("production", {"replicas": 20}, 19),
+    ],
+)
+def test_upgrade_uses_effective_posture_defaults(posture, workload, expected):
+    config = {"spec": {"environment": posture, "workload": workload}}
+    before = json.dumps(config)
+    upgraded = controller.upgrade_configuration(config)
+    assert upgraded["spec"]["workload"]["replicas"] == expected
+    assert json.dumps(config) == before
+
+
 @pytest.fixture
 def campaign(environment, tmp_path):
     root = tmp_path / "private"

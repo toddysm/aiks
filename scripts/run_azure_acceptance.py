@@ -97,6 +97,20 @@ def remaining(manifest: dict[str, Any], now: float, *, cleanup: bool = False) ->
     return available
 
 
+def upgrade_configuration(config: dict[str, Any]) -> dict[str, Any]:
+    upgraded: dict[str, Any] = json.loads(json.dumps(config))
+    spec = upgraded["spec"]
+    workload = spec.setdefault("workload", {})
+    configured = workload.get("replicas")
+    replicas = (
+        int(configured)
+        if configured is not None
+        else (2 if spec["environment"] == "production" else 1)
+    )
+    workload["replicas"] = replicas + 1 if replicas < 20 else replicas - 1
+    return upgraded
+
+
 def private_directory(path: Path) -> Path:
     if not path.is_absolute() or ".." in path.parts:
         raise ValueError("runner storage must be an absolute private path")
@@ -333,9 +347,7 @@ class Campaign:
                 self.cli(index, "infra", "deploy")
                 config_path = self.directory / str(index) / "environment.json"
                 original = read(config_path)
-                upgraded = json.loads(json.dumps(original))
-                workload = upgraded["spec"].setdefault("workload", {})
-                workload["replicas"] = workload.get("replicas", 1) + 1
+                upgraded = upgrade_configuration(original)
                 try:
                     save(config_path, upgraded)
                     self.workload(index, "upgrade")
