@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from aiks.config import EnvironmentConfig
 
@@ -231,6 +232,64 @@ def check_recovery(
         raise ValueError("bootstrap state is incomplete")
 
 
-def write_json(path: Path, value: Any) -> None:
-    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-    path.chmod(0o600)
+def check_empty_environment_state(document: Any) -> None:
+    if not isinstance(document, dict) or document.get("version") != 4:
+        raise ValueError("environment state is not a supported object")
+    if (
+        not isinstance(document.get("lineage"), str)
+        or not document["lineage"].strip()
+        or not isinstance(document.get("serial"), int)
+        or isinstance(document["serial"], bool)
+        or document["serial"] < 0
+        or not isinstance(document.get("outputs"), dict)
+        or not isinstance(document.get("resources"), list)
+    ):
+        raise ValueError("environment state metadata is unverifiable")
+    if document["outputs"]:
+        raise ValueError("environment state is not empty; refusing removal")
+    for resource in document["resources"]:
+        if not isinstance(resource, dict) or resource.get("mode") != "data":
+            raise ValueError("environment state is not empty; refusing removal")
+        if (
+            not isinstance(resource.get("type"), str)
+            or not resource["type"]
+            or not isinstance(resource.get("name"), str)
+            or not resource["name"]
+            or not isinstance(resource.get("instances"), list)
+        ):
+            raise ValueError("environment data-resource shape is unverifiable")
+        if any(
+            not isinstance(instance, dict) or not isinstance(instance.get("attributes"), dict)
+            for instance in resource["instances"]
+        ):
+            raise ValueError("environment data-resource instances are unverifiable")
+
+
+def write_json(path: Path, value: Any, *, create_parents: bool = False) -> None:
+    content = json.dumps(value, indent=2) + "\n"
+    directory = os.open(path.anchor or ".", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    temporary = f".aiks-{uuid4()}.json"
+    try:
+        for part in path.parent.parts:
+            if part in {path.anchor, "."}:
+                continue
+            if part == "..":
+                raise ValueError("private artifact path must not traverse parent directories")
+            if create_parents:
+                with suppress(FileExistsError):
+                    os.mkdir(part, mode=0o700, dir_fd=directory)
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory)
+    finally:
+        with suppress(FileNotFoundError):
+            os.unlink(temporary, dir_fd=directory)
+        os.close(directory)

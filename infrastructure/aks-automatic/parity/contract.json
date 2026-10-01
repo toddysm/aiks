@@ -12,7 +12,8 @@
   "operationalInputs": {
     "terraform": "Terraform-only backend lifecycle; excluded from environment resource parity",
     "local": "Shared readiness local target; not an Azure infrastructure input",
-    "workload": "Shared readiness Helm/image lifecycle; independent of infrastructure engine"
+    "workload": "Shared readiness Helm/image lifecycle; independent of infrastructure engine",
+    "lifecycle": "Shared operator timeouts and private-network preflight; not an engine resource input"
   },
   "outputs": [
     "environment", "location", "resourceGroup", "cluster", "registry", "vault",

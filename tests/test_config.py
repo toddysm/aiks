@@ -21,6 +21,16 @@ def test_example_configuration_is_valid(name: str) -> None:
     assert str(config.spec.identity.admin_group_object_id)
 
 
+@pytest.mark.parametrize(
+    "host", ["https://private.invalid/", "user:password@host", "host/path", "host?query"]
+)
+def test_lifecycle_probes_reject_urls(host):
+    from aiks.config import InfrastructureLifecycle
+
+    with pytest.raises(ValidationError):
+        InfrastructureLifecycle(private_probe_hosts=[host])
+
+
 def test_committed_schema_matches_model() -> None:
     committed = json.loads((CONFIG_DIR / "schema.json").read_text())
 

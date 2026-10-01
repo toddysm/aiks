@@ -35,6 +35,25 @@ def test_environment_isolation(service: StateBackend) -> None:
     assert service.environment["ARM_SUBSCRIPTION_ID"] == SUBSCRIPTION
 
 
+def test_blob_download_forwards_only_explicit_descriptors(service, monkeypatch):
+    def execute(arguments, **kwargs):
+        assert kwargs["pass_fds"] == (17,)
+        assert arguments[arguments.index("--subscription") + 1] == SUBSCRIPTION
+        assert arguments[arguments.index("--auth-mode") + 1] == "login"
+        return CommandResult(tuple(arguments), 0, "{}", "")
+
+    monkeypatch.setattr("aiks.state.run_command", execute)
+    service._blob("download", "--file", "/dev/fd/17", pass_fds=(17,))
+
+
+def test_backend_filters_username_password_credentials(service, monkeypatch, tmp_path):
+    monkeypatch.setenv("AZURE_USERNAME", "synthetic-user")
+    monkeypatch.setenv("AZURE_PASSWORD", "synthetic-value")
+    backend = StateBackend(service.config, directory=tmp_path / "other")
+    assert "AZURE_USERNAME" not in backend.environment
+    assert "AZURE_PASSWORD" not in backend.environment
+
+
 def test_only_known_reads_retry(service: StateBackend, monkeypatch: pytest.MonkeyPatch) -> None:
     attempts: list[object] = []
     delays: list[int] = []
@@ -143,7 +162,8 @@ class Cloud:
         self.calls: list[tuple[str, ...]] = []
         self.document = recovery_state(service)
 
-    def az(self, *arguments: str) -> Any:
+    def az(self, *arguments: str, pass_fds: tuple[int, ...] = ()) -> Any:
+        assert not pass_fds
         self.calls.append(arguments)
         if arguments[:2] == ("cloud", "show"):
             return "https://management.azure.com/"

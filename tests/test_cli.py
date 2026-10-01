@@ -59,13 +59,17 @@ def test_validate_writes_redacted_machine_result(tmp_path: Path) -> None:
     assert "operation=infra.validate" in result.output
 
 
-def test_pending_command_fails_clearly() -> None:
+def test_preflight_failure_is_structured(monkeypatch) -> None:
+    def fail(*args, **kwargs):
+        raise ValueError("operator lacks deployment permissions")
+
+    monkeypatch.setattr("aiks.cli.InfrastructureRuntime", fail)
     result = CliRunner().invoke(
         cli, ["infra", "preflight", "--config", str(DEV), "--engine", "terraform"]
     )
 
     assert result.exit_code == 1
-    assert "tracked by GitHub issue #11" in result.output
+    assert "operator lacks deployment permissions" in result.output
 
 
 @pytest.mark.parametrize("operation", ["bootstrap", "status"])
@@ -124,15 +128,23 @@ def test_destroy_requires_typed_environment() -> None:
     assert "did not match" in result.output
 
 
-def test_confirmed_dev_destroy_reaches_tracked_placeholder() -> None:
+def test_confirmed_dev_destroy_reaches_runtime(monkeypatch) -> None:
+    class Runtime:
+        phase = "cleanup"
+
+        def destroy(self, **kwargs):
+            assert kwargs["confirmed_environment"] == "dev"
+            return {"environmentDeleted": True}
+
+    monkeypatch.setattr("aiks.cli.InfrastructureRuntime", lambda *args, **kwargs: Runtime())
     result = CliRunner().invoke(
         cli,
         ["infra", "destroy", "--config", str(DEV), "--engine", "terraform"],
         input="dev\n",
     )
 
-    assert result.exit_code == 1
-    assert "tracked by GitHub issue #11" in result.output
+    assert result.exit_code == 0, result.output
+    assert "environmentDeleted" in result.output
 
 
 def test_confirmed_production_state_destroy_reaches_service(
@@ -157,17 +169,92 @@ def test_confirmed_production_state_destroy_reaches_service(
     assert "backendDeleted" in result.output
 
 
-def test_all_later_issue_commands_are_visible_and_explicitly_pending() -> None:
+def test_infrastructure_commands_dispatch_without_cloud_access(monkeypatch) -> None:
+    class Runtime:
+        phase = "verified"
+
+        def __getattr__(self, name):
+            return lambda **kwargs: {"operation": name}
+
+    monkeypatch.setattr("aiks.cli.InfrastructureRuntime", lambda *args, **kwargs: Runtime())
     invocations = [
         (["infra", "plan", "--config", str(DEV), "--engine", "bicep"], "#11"),
         (["infra", "deploy", "--config", str(DEV), "--engine", "terraform"], "#11"),
         (["infra", "verify", "--config", str(DEV)], "#11"),
     ]
 
-    for arguments, issue in invocations:
-        result = CliRunner().invoke(cli, arguments)
-        assert result.exit_code == 1
-        assert f"tracked by GitHub issue {issue}" in result.output
+    for arguments, _issue in invocations:
+        result = CliRunner().invoke(cli, arguments, input="dev\n")
+        assert result.exit_code == 0, result.output
+        assert "succeeded" in result.output
+
+
+@pytest.mark.parametrize(
+    "operation", ["preflight", "plan", "deploy", "verify", "destroy", "exercise-alerts"]
+)
+def test_infrastructure_results_and_confirmations(operation, monkeypatch, tmp_path):
+    class Runtime:
+        phase = "verified"
+
+        def __getattr__(self, name):
+            return lambda **kwargs: {"operation": name}
+
+    monkeypatch.setattr("aiks.cli.InfrastructureRuntime", lambda *args, **kwargs: Runtime())
+    output = tmp_path / "result.json"
+    arguments = [
+        "infra",
+        operation,
+        "--config",
+        str(DEV),
+        "--engine",
+        "bicep",
+        "--json-output",
+        str(output),
+    ]
+    if operation == "destroy":
+        arguments += ["--allow-partial-cleanup"]
+    result = CliRunner().invoke(cli, arguments, input="dev\n")
+    assert result.exit_code == 0, result.output
+    assert json.loads(output.read_text())["succeeded"] is True
+
+
+@pytest.mark.parametrize(
+    "operation,flag",
+    [("deploy", "--allow-production-deploy"), ("exercise-alerts", "--allow-production-change")],
+)
+def test_production_mutations_require_override_and_confirmation(operation, flag, monkeypatch):
+    monkeypatch.setattr(
+        "aiks.cli.InfrastructureRuntime",
+        lambda *args, **kwargs: pytest.fail("must refuse before runtime construction"),
+    )
+    arguments = ["infra", operation, "--config", str(PROD), "--engine", "bicep"]
+    assert flag in CliRunner().invoke(cli, arguments).output
+    result = CliRunner().invoke(cli, [*arguments, flag], input="wrong\n")
+    assert result.exit_code == 1 and "did not match" in result.output
+
+
+def test_infrastructure_failure_result_is_redacted(monkeypatch, tmp_path):
+    def fail(*args, **kwargs):
+        raise ValueError("Bearer private-value")
+
+    monkeypatch.setattr("aiks.cli.InfrastructureRuntime", fail)
+    output = tmp_path / "failure.json"
+    result = CliRunner().invoke(
+        cli,
+        [
+            "infra",
+            "plan",
+            "--config",
+            str(DEV),
+            "--engine",
+            "terraform",
+            "--json-output",
+            str(output),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "private-value" not in result.output + output.read_text()
+    assert not json.loads(output.read_text())["succeeded"]
 
 
 def test_schema_command_writes_schema(tmp_path: Path) -> None:

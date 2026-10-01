@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import subprocess
+import sys
+import tempfile
 
 import pytest
 
@@ -28,6 +30,22 @@ def test_run_command_uses_argument_array_without_shell(monkeypatch: pytest.Monke
 def test_run_command_rejects_empty_arguments() -> None:
     with pytest.raises(ValueError, match="must not be empty"):
         run_command([])
+
+
+def test_anonymous_download_descriptor_is_inherited() -> None:
+    with tempfile.TemporaryFile() as handle:
+        result = run_command(
+            [
+                sys.executable,
+                "-c",
+                "import pathlib, sys; pathlib.Path(sys.argv[1]).write_text('{}')",
+                f"/dev/fd/{handle.fileno()}",
+            ],
+            pass_fds=(handle.fileno(),),
+        )
+        assert result.succeeded
+        handle.seek(0)
+        assert handle.read() == b"{}"
 
 
 def test_run_command_redacts_output(monkeypatch: pytest.MonkeyPatch) -> None:

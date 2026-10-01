@@ -3,6 +3,10 @@
 Cross-engine resource, security, and automation checks are documented in the
 [parity and static validation guide](parity/README.md).
 
+Deployment, verification, alert exercises, and protected cleanup are described
+in the [Azure lifecycle guide](lifecycle/README.md). Live acceptance for #11 is
+still required before declaring the foundation deployment-validated.
+
 This directory contains the configuration contract and, as later work items land, the Bicep,
 Terraform, readiness application, and Helm implementations for the accepted
 [AKS Automatic foundation design](../../docs/architecture/infrastructure/aks-automatic-foundation.md).
@@ -25,13 +29,13 @@ The CLI uses Click and provides these command groups:
 - `aiks local`: local kind cluster lifecycle
 - `aiks workload`: readiness Helm release lifecycle
 
-Commands owned by later implementation issues are visible but fail with the GitHub issue that
-tracks their implementation. They never report a deployment as successful before it exists.
+Infrastructure commands now execute the guarded lifecycle described in the
+[Azure lifecycle guide](lifecycle/README.md). They never report a deployment as
+successful before resource, workload, and monitoring verification passes.
 
 The readiness service, shared Helm chart, local kind lifecycle, and workload commands
 are documented in the [readiness operator guide](readiness-app/README.md). Local
-deployment is tested; live AKS validation remains under #11/#12. The infrastructure
-deployment commands themselves remain placeholders until #11.
+deployment is tested; live AKS and infrastructure validation remains under #11/#12.
 
 ## Configuration
 
@@ -42,8 +46,7 @@ Configuration precedence is intentionally narrow:
 
 1. The selected YAML file supplies all nonsecret environment settings.
 2. Explicit CLI options select operations and targets but do not override environment posture.
-3. The current Azure CLI session supplies subscription, tenant, and user authentication in later
-   work items.
+3. The current Azure CLI session supplies subscription, tenant, and user authentication.
 4. Environment variables are reserved for ignored local testing and never carry committed Azure
    credentials.
 
@@ -89,8 +92,9 @@ Terraform backend; state cleanup remains a separate guarded command.
 
 State bootstrap/status/destroy are implemented under #8 and documented in the
 [Terraform operator guide](terraform/README.md). They require an authenticated Azure session
-and perform real operations when invoked. Environment deployment and deletion remain
-placeholders owned by #11. Do not infer live validation from passing offline tests.
+and perform real operations when invoked. Environment deployment and deletion are
+implemented under #11, with required live acceptance still pending. Do not infer
+live validation from passing offline tests.
 
 ## Issue #6 validation
 

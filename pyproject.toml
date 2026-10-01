@@ -44,6 +44,8 @@ aiks = "aiks.cli:cli"
 packages = ["src/aiks"]
 
 [tool.hatch.build.targets.wheel.force-include]
+"infrastructure/aks-automatic/config/platform.json" = "aiks/infrastructure/aks-automatic/config/platform.json"
+"infrastructure/aks-automatic/parity/contract.json" = "aiks/infrastructure/aks-automatic/parity/contract.json"
 "infrastructure/aks-automatic/bicep" = "aiks/infrastructure/aks-automatic/bicep"
 "infrastructure/aks-automatic/charts/readiness" = "aiks/infrastructure/aks-automatic/charts/readiness"
 "infrastructure/aks-automatic/terraform/environment/main.tf" = "aiks/infrastructure/aks-automatic/terraform/environment/main.tf"
