@@ -60,7 +60,7 @@ packages = ["src/aiks"]
 "infrastructure/aks-automatic/terraform/modules/cluster/main.tf" = "aiks/infrastructure/aks-automatic/terraform/modules/cluster/main.tf"
 
 [tool.pytest.ini_options]
-addopts = "--strict-markers --strict-config --cov=aiks --cov-report=term-missing --cov-fail-under=90"
+addopts = "--strict-markers --strict-config --cov-config=pyproject.toml --cov=aiks --cov-report=term-missing --cov-fail-under=90"
 pythonpath = ["src"]
 testpaths = ["tests"]
 

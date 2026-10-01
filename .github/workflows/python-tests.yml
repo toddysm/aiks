@@ -74,16 +74,19 @@ jobs:
         run: python -m pytest
 
       - name: Run Ruff lint
-        run: ruff check src tests scripts/check_repository.py
+        run: ruff check src tests scripts/check_repository.py scripts/run_azure_acceptance.py
 
       - name: Check Ruff formatting
-        run: ruff format --check src tests scripts/check_repository.py
+        run: ruff format --check src tests scripts/check_repository.py scripts/run_azure_acceptance.py
 
       - name: Run strict type checks
-        run: mypy src
+        run: mypy src scripts/run_azure_acceptance.py
 
       - name: Run Bandit security checks
         run: bandit -q -r src
+
+      - name: Check acceptance controller security
+        run: bandit -q -ll scripts/run_azure_acceptance.py
 
       - name: Audit dependencies
         run: pip-audit

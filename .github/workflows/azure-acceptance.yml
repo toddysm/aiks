@@ -1,0 +1,25 @@
+name: Azure acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_sha:
+        description: Full commit approved in the azure-acceptance environment
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aiks-azure-acceptance
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    uses: ./.github/workflows/azure-acceptance-worker.yml
+    with:
+      test_sha: ${{ inputs.test_sha }}
+      mode: test
+    secrets: inherit

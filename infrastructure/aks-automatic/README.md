@@ -3,6 +3,11 @@
 Cross-engine resource, security, and automation checks are documented in the
 [parity and static validation guide](parity/README.md).
 
+The opt-in [GitHub Actions acceptance guide](actions/README.md) documents
+user-assigned managed identity authentication, protected GitHub settings,
+private runners, cost admission and independent cleanup. It tests a separately
+approved lifecycle commit; ordinary pull-request checks do not deploy to Azure.
+
 This directory contains the configuration contract and, as later work items land, the Bicep,
 Terraform, readiness application, and Helm implementations for the accepted
 [AKS Automatic foundation design](../../docs/architecture/infrastructure/aks-automatic-foundation.md).

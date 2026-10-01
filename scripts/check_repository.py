@@ -38,20 +38,52 @@ def unique_mapping(loader: UniqueLoader, node: yaml.MappingNode) -> dict[Any, An
 UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, unique_mapping)
 
 
-def workflow_policy(document: dict[str, Any]) -> None:
+def workflow_policy(document: dict[str, Any], *, workflow_name: str | None = None) -> None:
     supported_actions = json.loads(
         (Path(__file__).resolve().parents[1] / ".github/action-policy.json").read_text()
     )
-    if document.get("permissions") != {"contents": "read"}:
+    live_triggers = {
+        "azure-acceptance.yml": {"workflow_dispatch"},
+        "azure-acceptance-cleanup.yml": {"workflow_dispatch", "workflow_run", "schedule"},
+        "azure-acceptance-worker.yml": {"workflow_call"},
+    }
+    live = workflow_name in live_triggers
+    worker = workflow_name == "azure-acceptance-worker.yml"
+    defaults = {"contents": "read", **({"id-token": "write"} if live else {})}
+    if document.get("permissions") != defaults:
         raise ValueError("workflow needs explicit read-only default permissions")
-    if not document.get("concurrency"):
+    if not document.get("concurrency") and not worker:
         raise ValueError("workflow needs concurrency cancellation")
     triggers = document.get("on", document.get(True, {}))
+    if live and set(triggers) != live_triggers[workflow_name]:
+        raise ValueError("live workflows must use only their approved explicit triggers")
+    if live and len(document.get("jobs", {})) != 1:
+        raise ValueError("live workflow must have exactly one reviewed worker or caller")
     if "pull_request_target" in triggers:
         raise ValueError("privileged pull request execution is prohibited")
     for name, job in document["jobs"].items():
         if "uses" in job:
-            raise ValueError("reusable workflows require an explicit reviewed policy")
+            if (
+                not live
+                or worker
+                or job["uses"] != "./.github/workflows/azure-acceptance-worker.yml"
+            ):
+                raise ValueError("reusable workflows require an explicit reviewed policy")
+            continue
+        if live:
+            expected_environment = (
+                "${{ inputs.mode == 'test' && 'azure-acceptance' || 'azure-acceptance-cleanup' }}"
+            )
+            if (
+                not worker
+                or "self-hosted" not in job.get("runs-on", [])
+                or job.get("environment") != expected_environment
+                or "refs/heads/main" not in job.get("if", "")
+                or job.get("timeout-minutes") != 720
+            ):
+                raise ValueError(
+                    "live worker requires protected environments, main and bounded runners"
+                )
         permissions = job.get("permissions", {})
         allowed = {
             "contents": "read",
@@ -70,8 +102,14 @@ def workflow_policy(document: dict[str, Any]) -> None:
                 r"[A-Za-z0-9_./-]+@(?:v\d+(?:\.\d+){0,2}|[0-9a-f]{40})", action
             ):
                 raise ValueError("action must pin a supported release or commit")
-            if action and action.lower().startswith("azure/login@"):
+            if action and action.lower().startswith("azure/login@") and not worker:
                 raise ValueError("static validation must not authenticate to Azure")
+            if (
+                action
+                and action.lower().startswith("azure/login@")
+                and set(step.get("with", {})) != {"client-id", "tenant-id", "subscription-id"}
+            ):
+                raise ValueError("live login permits managed-identity federation identifiers only")
             if action:
                 action_name, version = action.rsplit("@", 1)
                 if action_name not in supported_actions or (
@@ -97,7 +135,10 @@ def validate_file(path: Path) -> None:
         if ".github/workflows" in path.as_posix():
             if len(documents) != 1 or not isinstance(documents[0], dict):
                 raise ValueError("workflow must contain one mapping")
-            workflow_policy(documents[0])
+            expected = Path(__file__).resolve().parents[1] / ".github/workflows" / path.name
+            workflow_policy(
+                documents[0], workflow_name=path.name if path.resolve() == expected else None
+            )
 
 
 def main() -> None:

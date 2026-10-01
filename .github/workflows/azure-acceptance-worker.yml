@@ -1,0 +1,153 @@
+name: Azure acceptance worker
+
+on:
+  workflow_call:
+    inputs:
+      test_sha:
+        type: string
+        default: ''
+      mode:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  worker:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
+       github.event_name == 'workflow_run')
+    environment: ${{ inputs.mode == 'test' && 'azure-acceptance' || 'azure-acceptance-cleanup' }}
+    runs-on: [self-hosted, linux, x64, "${{ inputs.mode == 'test' && 'aiks-acceptance' || 'aiks-recovery' }}"]
+    timeout-minutes: 720
+    env:
+      AIKS_TEST_SHA: ${{ inputs.test_sha || vars.AIKS_APPROVED_SHA }}
+      AIKS_APPROVED_SHA: ${{ vars.AIKS_APPROVED_SHA }}
+      AIKS_CAMPAIGN: ${{ vars.AIKS_CAMPAIGN }}
+      AIKS_MAX_SPEND_USD: '100'
+      AIKS_MAX_HOURS: '12'
+      AIKS_MAX_HOURLY_USD: ${{ vars.AIKS_MAX_HOURLY_USD }}
+      AIKS_RETAINED_COST_USD: ${{ vars.AIKS_RETAINED_COST_USD }}
+      AIKS_CONFIG_BUNDLE: ${{ secrets.AIKS_CONFIG_BUNDLE }}
+      AIKS_RUN_ROOT: ${{ vars.AIKS_RUN_ROOT }}
+      AZURE_CORE_OUTPUT: none
+      AZURE_CORE_COLLECT_TELEMETRY: 'false'
+    steps:
+      - name: Isolate job login sessions
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'AZURE_CONFIG_DIR=%s\n' "$(mktemp -d "$RUNNER_TEMP/azure-cli.XXXXXX")" >> "$GITHUB_ENV"
+          printf 'DOCKER_CONFIG=%s\n' "$(mktemp -d "$RUNNER_TEMP/docker.XXXXXX")" >> "$GITHUB_ENV"
+          rm -f "$RUNNER_TEMP/acceptance-summary.json"
+      - name: Checkout trusted controller
+        uses: actions/checkout@v7
+        with:
+          path: controller
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check approval and cost admission before target checkout
+        shell: bash
+        env:
+          RUN_MODE: ${{ inputs.mode }}
+          RECOVERY_ENABLED: ${{ vars.AIKS_RECOVERY_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$RECOVERY_ENABLED" = true
+          case "$RUN_MODE" in test|cleanup|expired) ;; *) exit 1 ;; esac
+          python - <<'PY'
+          import os
+          import sys
+          import time
+          sys.path.insert(0, "controller/scripts")
+          from run_azure_acceptance import admission
+          admission(dict(os.environ), time.time())
+          print("Commit, configuration bundle and cost admission verified")
+          PY
+      - name: Checkout approved lifecycle implementation
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.AIKS_TEST_SHA }}
+          path: target
+          persist-credentials: false
+      - name: Install the approved implementation
+        id: install
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = "$AIKS_TEST_SHA"
+          python -m venv "$RUNNER_TEMP/acceptance-venv"
+          "$RUNNER_TEMP/acceptance-venv/bin/python" -m pip install -e './target[readiness]'
+          printf 'AIKS_PYTHON=%s/acceptance-venv/bin/python\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Authenticate managed identity for Bicep development
+        if: inputs.mode == 'test'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Bicep development lifecycle
+        if: inputs.mode == 'test'
+        run: python controller/scripts/run_azure_acceptance.py --scenario 0
+      - name: Refresh identity for Bicep private production
+        if: inputs.mode == 'test'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Bicep private-production lifecycle
+        if: inputs.mode == 'test'
+        run: python controller/scripts/run_azure_acceptance.py --scenario 1
+      - name: Refresh identity for Terraform development
+        if: inputs.mode == 'test'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Terraform development lifecycle
+        if: inputs.mode == 'test'
+        run: python controller/scripts/run_azure_acceptance.py --scenario 2
+      - name: Refresh identity for Terraform private production
+        if: inputs.mode == 'test'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Terraform private-production lifecycle
+        if: inputs.mode == 'test'
+        run: python controller/scripts/run_azure_acceptance.py --scenario 3
+      - name: Authenticate managed identity for recovery
+        if: ${{ always() && steps.install.outcome == 'success' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Guarded recovery
+        if: ${{ always() && steps.install.outcome == 'success' }}
+        shell: bash
+        env:
+          RUN_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          if [[ "$RUN_MODE" == expired ]]; then
+            python controller/scripts/run_azure_acceptance.py --cleanup --expired-only
+          else
+            python controller/scripts/run_azure_acceptance.py --cleanup
+          fi
+      - name: Publish sanitized summary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-acceptance-${{ inputs.mode }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/acceptance-summary.json
+          if-no-files-found: ignore
+          retention-days: 7

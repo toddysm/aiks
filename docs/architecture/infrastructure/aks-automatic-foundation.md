@@ -33,11 +33,27 @@ AKS Automatic supplies the required Kubernetes network data plane through Azure 
 - Deploy a model, inference server, agent, or multi-agent application.
 - Request GPU quota or force creation of GPU capacity.
 - Create private operator connectivity such as VPN, ExpressRoute, peering, jump hosts, or private CI runners.
-- Deploy Azure resources from GitHub Actions.
+- Deploy Azure resources from ordinary pull-request checks or automatic push workflows.
 - Implement multi-region disaster recovery.
 - Provide production DNS names, certificates, or a general application ingress platform beyond readiness validation.
 - Support Windows nodes, AKS Standard, or non-Azure cloud infrastructure.
 - Enable the Istio service-mesh profile, sidecar injection, or Istio workload CRDs. The sidecarless `approuting-istio` Gateway API ingress implementation remains in scope.
+
+### Approved acceptance automation exception
+
+On 2026-10-01 the operator approved implementing manually dispatched live
+acceptance in GitHub Actions under [#33](https://github.com/toddysm/aiks/issues/33).
+The [Actions operator guide](../../../infrastructure/aks-automatic/actions/README.md)
+defines the narrow exception: reviewed immutable deployment code, protected
+environments, user-assigned managed identity with OpenID Connect federation,
+pre-existing dedicated private runners, persistent ownership receipts,
+sequential environments, bounded execution and independent guarded recovery.
+The aggregate authorization is USD 100 and 12 hours including cleanup; cost
+admission is an estimate with headroom, not a guaranteed billing cap.
+Runner/network provisioning and identity grants remain separate setup operations.
+Normal pull-request checks stay cloud-free. Automated success does not substitute
+for manual notification, backend recovery, drift fixtures or audited acceptance,
+and does not waive the lifecycle pull request's live-acceptance merge gate.
 
 ## Requirements and scenarios
 
