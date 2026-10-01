@@ -1,0 +1,25 @@
+name: Azure acceptance recovery
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Azure acceptance]
+    types: [completed]
+  schedule:
+    - cron: '17,47 * * * *'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aiks-azure-acceptance-recovery
+  cancel-in-progress: false
+
+jobs:
+  recovery:
+    if: ${{ vars['AIKS_RECOVERY_ENABLED'] == 'true' }}
+    uses: ./.github/workflows/azure-acceptance-worker.yml
+    with:
+      mode: ${{ github.event_name == 'schedule' && 'expired' || 'cleanup' }}
+    secrets: inherit
